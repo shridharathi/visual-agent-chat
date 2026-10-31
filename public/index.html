@@ -211,7 +211,7 @@ button.th-row:hover { background: var(--hover); }
   .think-side .slots { inset: auto 0 auto 0; top: 50%; height: 100px; margin-top: -50px; }
   .th-head { position: relative; z-index: 1; }
 }
-/* Phones: one centred, padded column. The shape tile shrinks and the thinking header and steps centre right under it,
+/* Phones: a padded column. The shape tile shrinks and centres; the thinking header and steps stay left-aligned right under it,
  * so the agent's progress stays on screen instead of sliding below the browser toolbar. */
 @media (max-width: 720px) {
   .stage { padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); padding-block: clamp(28px, 8vh, 72px) 64px; }
@@ -219,11 +219,9 @@ button.th-row:hover { background: var(--hover); }
   .run { margin-top: 12px; }
   .think { align-items: center; gap: 6px; }
   .mind { width: min(230px, 100%); margin-block: 0; }
-  .think-side { align-items: center; width: 100%; padding-top: 0; text-align: center; }
+  .think-side { align-items: flex-start; width: 100%; padding-top: 0; }
   .think-side > .collapse { align-self: stretch; }
-  .th-head { align-self: center; }
   .trace { height: 126px; }   /* room for three steps even when two of them wrap */
-  .th-row { text-align: center; }
   .answer { line-height: 1.8; }
 }
 @media (prefers-reduced-motion: reduce) {
