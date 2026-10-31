@@ -17,6 +17,9 @@
   "durable_objects": { "bindings": [{ "name": "THREAD", "class_name": "Thread" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Thread"] }],
 
-  // Per-visitor cap on messages, so one person can't run up the bill.
-  "ratelimits": [{ "name": "LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } }]
+  // Caps on messages so nobody can run up the bill: 20 a minute per visitor cookie, 60 a minute per IP (offices share one).
+  "ratelimits": [
+    { "name": "LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } },
+    { "name": "IP_LIMITER", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } }
+  ]
 }

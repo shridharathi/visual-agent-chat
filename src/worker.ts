@@ -25,8 +25,13 @@ export default {
 
     let res: Response;
     if (url.pathname === "/api/chat" && req.method === "POST") {
-      const { success } = await env.LIMITER.limit({ key: who.id });
-      if (!success) return json({ error: "rate_limited" }, 429);
+      // Only this site's own page may send messages; another site can't make a visitor's browser spend credits.
+      const origin = req.headers.get("origin");
+      if (origin && origin !== url.origin) return json({ error: "forbidden" }, 403);
+      // Two caps: per visitor cookie, and per IP so dropping the cookie doesn't hand out a fresh allowance.
+      const ip = req.headers.get("cf-connecting-ip") ?? "unknown";
+      const [byVisitor, byIp] = await Promise.all([env.LIMITER.limit({ key: who.id }), env.IP_LIMITER.limit({ key: ip })]);
+      if (!byVisitor.success || !byIp.success) return json({ error: "rate_limited" }, 429);
     }
     if (url.pathname === "/api/chat" || url.pathname === "/api/thread") {
       // The visitor id is part of the object's name, so a guessed thread id can only ever reach your own thread.
