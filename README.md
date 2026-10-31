@@ -32,6 +32,14 @@ browser ── /api/chat ──► Worker ──► Thread Durable Object (one p
 2. Create an API token from the **Edit Cloudflare Workers** template and add **Account → Workers AI → Read** and **Account → AI Gateway → Read** and **Run**. Put it in a `.env` file (gitignored): `CLOUDFLARE_API_TOKEN=...` (add `CLOUDFLARE_ACCOUNT_ID=...` if the token covers several accounts).
 3. `npm install`, then `npm run dev` for a local server (the AI binding always calls Cloudflare, even locally) or `npm run deploy` to publish.
 
-Settings live in `wrangler.jsonc`: `MODEL`, `GATEWAY_ID`, and the per-visitor rate limit (20 messages a minute).
+Settings live in `wrangler.jsonc`: `MODEL` and `GATEWAY_ID`.
+
+## Security
+
+- No keys ship to the browser or sit in the repo: the model and search go through the `AI` binding, billed to your account. Your Cloudflare login stays on your machine.
+- Chat requests must come from the site itself (cross-site POSTs get a 403) and are capped at 40 a minute per IP and 20 a minute per visitor. The counters are exact (`src/limiter.ts`, a Durable Object per key); Cloudflare's built-in rate-limit binding was tried first but is only approximate.
+- `public/_headers` sets a strict Content-Security-Policy, `X-Frame-Options: DENY`, `nosniff` and a Referrer-Policy.
+- Answers are sanitized with DOMPurify and images are stripped, so a prompt-injected answer can't phone home through an image URL.
+- Set a spend limit in the dashboard (AI → AI Gateway → Spend limits) as the real ceiling on cost.
 
 Dithering core adapted from [Paper Shaders](https://shaders.paper.design/dithering) (Apache-2.0).

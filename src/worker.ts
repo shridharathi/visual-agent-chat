@@ -1,6 +1,7 @@
 /* Edge entry: gives each visitor an anonymous id, then hands /api/* to that visitor's thread object.
  * Nothing about a conversation lives in this module's scope: one isolate serves many visitors at once. */
 export { Thread } from "./thread";
+export { Limiter } from "./limiter";
 
 const COOKIE = "vac_uid";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -28,10 +29,11 @@ export default {
       // Only this site's own page may send messages; another site can't make a visitor's browser spend credits.
       const origin = req.headers.get("origin");
       if (origin && origin !== url.origin) return json({ error: "forbidden" }, 403);
-      // Two caps: per visitor cookie, and per IP so dropping the cookie doesn't hand out a fresh allowance.
+      // Two exact caps a minute: per IP, so dropping the cookie doesn't hand out a fresh allowance, then per visitor.
+      // The IP check comes first so a blocked flood never creates per-visitor objects.
       const ip = req.headers.get("cf-connecting-ip") ?? "unknown";
-      const [byVisitor, byIp] = await Promise.all([env.LIMITER.limit({ key: who.id }), env.IP_LIMITER.limit({ key: ip })]);
-      if (!byVisitor.success || !byIp.success) return json({ error: "rate_limited" }, 429);
+      const hit = (key: string, limit: number) => env.RATE.get(env.RATE.idFromName(key)).hit(limit, 60_000);
+      if (!(await hit(`ip:${ip}`, 40)) || !(await hit(`v:${who.id}`, 20))) return json({ error: "rate_limited" }, 429);
     }
     if (url.pathname === "/api/chat" || url.pathname === "/api/thread") {
       // The visitor id is part of the object's name, so a guessed thread id can only ever reach your own thread.
