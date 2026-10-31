@@ -92,7 +92,7 @@ button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 2px sol
 .status { margin: 8px 0 0; font-size: 13px; color: var(--ink-3); }
 
 /* ---------- starter suggestions: shown on an empty chat, gone once a question is asked ---------- */
-.pills { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; }
+.pills { margin-top: 44px; display: flex; flex-wrap: wrap; gap: 8px; }
 .pill {
   padding: 6px 12px; border-radius: 999px; background: var(--surface); box-shadow: var(--hairline);
   font-size: 13px; line-height: 18px; color: var(--ink-2); text-align: left;
@@ -179,6 +179,12 @@ button.th-row:hover { background: var(--hover); }
 .th-row .p { white-space: normal; overflow: visible; text-overflow: clip; font-size: 13px; font-weight: 400; line-height: 1.5; color: var(--ink-3); transition: color .3s; }
 .th-row:last-child .p { color: var(--ink); }
 .th-label { font-size: 14.5px; }
+/* Desktop: "Thinking" stays at the top; the step stream sits in the vertical middle, level with the shape tile. */
+@media (min-width: 721px) {
+  .think-side { align-self: stretch; position: relative; }
+  .think-side .trace { position: absolute; left: 0; right: 0; top: -8px; bottom: 0; margin: 0; display: flex; flex-direction: column; justify-content: center; }
+  .th-head { position: relative; z-index: 1; }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
   .grid3 > span { animation: none !important; }
@@ -781,13 +787,12 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
     const coll = h("div", "collapse"); const inner = h("div"); const trace = h("div", "trace");
     inner.appendChild(trace); coll.appendChild(inner);
     const side = h("div", "think-side"); side.append(head, coll); root.append(mindEl, side);
-    let manual = null, auto = true, settled = false, chev = null;
+    let manual = null, auto = true, settled = false;
     const t0 = performance.now();
     const tick = setInterval(() => { clock.textContent = fmtElapsed((performance.now() - t0) / 1000); }, 100);
     const apply = () => {
       const open = manual ?? auto;
       coll.classList.toggle("open", open); head.setAttribute("aria-expanded", open);
-      if (chev) chev.style.transform = open ? "rotate(180deg)" : "rotate(0)";
     };
     head.onclick = () => { manual = !(manual ?? auto); apply(); };
     apply();
@@ -801,14 +806,7 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
       },
       settle() {
         if (settled) return; settled = true; clearInterval(tick);
-        trace.querySelector(".p.shimmer")?.classList.remove("shimmer");
-        const s = Math.max(1, Math.round((performance.now() - t0) / 1000));
-        lead.innerHTML = svg(CHEV_DOWN, 14, 'fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"');
-        chev = lead.firstChild; chev.classList.add("chev");
-        label.className = "th-label done"; label.textContent = "Thought";
-        clock.textContent = s + "s";
-        apply();
-        setTimeout(() => { auto = false; apply(); }, 900);
+        root.remove(); // the answer takes over; no "Thought 6s" row left behind
       },
     };
   }
@@ -851,8 +849,6 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
     copy: `<g ${STROKE} stroke-width="1.8"><rect x="9" y="9" width="12" height="12" rx="2.5"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></g>`,
     retry: `<path ${STROKE} stroke-width="1.8" d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/>`,
     fresh: `<path ${STROKE} stroke-width="1.8" d="M12 5v14M5 12h14"/>`,
-    up: `<path ${STROKE} stroke-width="1.8" d="M7 10v12M15 5.88L14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88z"/>`,
-    down: `<path ${STROKE} stroke-width="1.8" d="M17 14V2M9 18.12L10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88z"/>`,
   };
   function finishUI(q, bodyText, fus) {
     const row = h("div", "actions"), msg = h("span", "act-note");
@@ -860,8 +856,6 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
     mk("copy", "Copy", async () => { try { await navigator.clipboard.writeText(bodyText); msg.textContent = "Copied"; } catch { msg.textContent = "Copy isn't available here"; } row.appendChild(msg); setTimeout(() => msg.remove(), 1600); });
     mk("retry", "Retry", () => ask(q));
     mk("fresh", "New chat", () => { current?.stop(); threadId = newId(); runEl.replaceChildren(); showPills(true); input.value = ""; grow(); sync(); input.focus(); });
-    const up = mk("up", "Good response", b => { b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); down.setAttribute("aria-pressed", "false"); });
-    const down = mk("down", "Bad response", b => { b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); up.setAttribute("aria-pressed", "false"); });
     turnEl.appendChild(row);
     if (fus.length) {
       const wrap = h("div", "fu"); wrap.appendChild(h("p", "fu-title", "Follow-ups"));
