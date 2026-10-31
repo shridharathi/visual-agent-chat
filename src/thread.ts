@@ -14,7 +14,7 @@ const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + "\n…[tr
 
 // The answer the page shows: everything after the @answer line, minus the follow-up suggestions.
 function answerOf(text: string) {
-  const lines = text.split("\n");
+  const lines = text.replace(/([^\n])(@answer|@scene\s)/g, "$1\n$2").split("\n");
   const at = lines.findIndex(l => /^\s*@answer\s*$/.test(l));
   let body = (at === -1 ? lines.filter(l => !/^\s*@/.test(l)) : lines.slice(at + 1)).join("\n");
   const k = body.indexOf(MARK);
@@ -125,7 +125,9 @@ export class Thread extends DurableObject<Env> {
           abortSignal: abort.signal,
         });
         for await (const part of result.fullStream) {
-          if (part.type === "text-delta") { full += part.text; await send({ t: "text", d: part.text }); }
+          // Text after a tool call starts a new block; break the line so "@answer" or "@scene" doesn't glue onto the last status.
+          if (part.type === "text-start" && full && !full.endsWith("\n")) { full += "\n"; await send({ t: "text", d: "\n" }); }
+          else if (part.type === "text-delta") { full += part.text; await send({ t: "text", d: part.text }); }
           else if (part.type === "tool-call") await send({ t: "tool", name: part.toolName, input: part.input });
           else if (part.type === "tool-error") await send({ t: "tool_error", name: part.toolName });
           else if (part.type === "finish") finish = part.finishReason;

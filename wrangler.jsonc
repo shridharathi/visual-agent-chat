@@ -10,7 +10,7 @@
   "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
 
   // Claude Haiku 5.5 and Exa search both go through AI Gateway on this binding, billed to the account's AI Gateway credits.
-  "ai": { "binding": "AI" },
+  "ai": { "binding": "AI", "remote": true },
   "vars": { "GATEWAY_ID": "default", "MODEL": "anthropic/claude-haiku-5.5" },
 
   // One Durable Object (with its own SQLite database) per chat thread.

@@ -652,7 +652,7 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
   saveThread();
 
   function parseStream(text) {
-    const lines = text.split("\n"), thoughts = [], ans = [];
+    const lines = text.replace(/([^\n])(@answer|@scene\s)/g, "$1\n$2").split("\n"), thoughts = [], ans = [];
     const at = lines.findIndex(l => /^\s*@answer\s*$/.test(l));
     lines.forEach((l, i) => {
       const m = l.match(/^\s*@(?:scene|think)\s+([A-Za-z-]+)\s*\|\s*(.*)$/);
