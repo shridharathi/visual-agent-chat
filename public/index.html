@@ -91,6 +91,16 @@ button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 2px sol
 
 .status { margin: 8px 0 0; font-size: 13px; color: var(--ink-3); }
 
+/* ---------- starter suggestions: shown on an empty chat, gone once a question is asked ---------- */
+.pills { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; }
+.pill {
+  padding: 6px 12px; border-radius: 999px; background: var(--surface); box-shadow: var(--hairline);
+  font-size: 13px; line-height: 18px; color: var(--ink-2); text-align: left;
+  transition: background .12s, color .12s, transform .1s; animation: fade-up 320ms var(--ease) both;
+}
+.pill:hover { background: var(--hover-2); color: var(--ink); }
+.pill:active { transform: scale(.97); }
+
 /* ---------- mind tile (dithering) ---------- */
 .run { margin-top: 20px; display: flex; flex-direction: column; gap: 12px; }
 .mind {
@@ -184,6 +194,7 @@ button.th-row:hover { background: var(--hover); }
     </button>
   </form>
   <p class="status" id="status" hidden></p>
+  <div class="pills" id="pills" aria-label="Suggestions"></div>
 
   <section class="run" id="run" aria-live="polite">
     <div class="mind" id="mind" hidden>
@@ -692,6 +703,26 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
   });
   function ask(q) { if (busy || unavailable) return; input.value = q; grow(); go(q); }
 
+  // Each one leans on a different tool, so a first click shows off a different shape.
+  const SUGGESTIONS = [
+    "What's the weather in Tokyo today?",
+    "Plan a 3-day trip to Lisbon",
+    "Gift ideas for my mom under $50",
+    "What's an 18% tip on $86.40?",
+    "What happened in AI this week?",
+    "Explain how a transformer works",
+  ];
+  const pillsEl = $("pills");
+  function showPills(on) {
+    pillsEl.hidden = !on;
+    if (!on) return;
+    pillsEl.replaceChildren(...SUGGESTIONS.map((t, i) => {
+      const b = h("button", "pill"); b.type = "button"; b.textContent = t; b.style.animationDelay = i * 40 + "ms";
+      b.onclick = () => ask(t); return b;
+    }));
+  }
+  showPills(true);
+
   /* ===== ThinkingState ===== */
   const mindEl = document.getElementById("mind"), runRoot = document.getElementById("run");
   function thinking() {
@@ -784,7 +815,7 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
     const mk = (key, label, fn) => { const b = h("button", "act", svg(ACTIONS[key], 15)); b.type = "button"; b.setAttribute("aria-label", label); b.title = label; b.onclick = () => fn(b); row.appendChild(b); return b; };
     mk("copy", "Copy", async () => { try { await navigator.clipboard.writeText(bodyText); msg.textContent = "Copied"; } catch { msg.textContent = "Copy isn't available here"; } row.appendChild(msg); setTimeout(() => msg.remove(), 1600); });
     mk("retry", "Retry", () => ask(q));
-    mk("fresh", "New chat", () => { current?.stop(); threadId = newId(); runEl.replaceChildren(); input.value = ""; grow(); sync(); input.focus(); });
+    mk("fresh", "New chat", () => { current?.stop(); threadId = newId(); runEl.replaceChildren(); showPills(true); input.value = ""; grow(); sync(); input.focus(); });
     const up = mk("up", "Good response", b => { b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); down.setAttribute("aria-pressed", "false"); });
     const down = mk("down", "Bad response", b => { b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); up.setAttribute("aria-pressed", "false"); });
     turnEl.appendChild(row);
@@ -805,6 +836,7 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
   async function go(q) {
     current?.stop(); stopTurns();
     // One exchange on screen at a time: a new question replaces the last one.
+    showPills(false);
     turnEl = h("div", "turn"); runEl.replaceChildren(turnEl);
     busy = true; sync();
     const think = thinking(); turnEl.appendChild(think.root);
