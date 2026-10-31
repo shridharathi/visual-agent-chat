@@ -21,6 +21,7 @@ browser ── /api/chat ──► Worker ──► Thread Durable Object (one p
 - `public/index.html`: the page (HTML, CSS, GLSL shader, JS). Served as a static asset.
 - `src/worker.ts`: gives each visitor an anonymous, HttpOnly cookie id, rate-limits messages, and routes `/api/*` to the right thread.
 - `src/thread.ts`: the `Thread` Durable Object. Runs the agent loop, streams NDJSON events (text deltas, tool calls) to the page, and stores each finished exchange.
+- `public/md.js`: renders answers as full Markdown (tables, task lists, code, quotes) with LaTeX via KaTeX, sanitized with DOMPurify. Images are dropped on purpose so a prompt-injected answer can't leak chat context through an image URL. `public/vendor/` holds the browser builds of marked, DOMPurify and KaTeX (refresh with `npm run vendor`).
 - `src/prompt.ts`: the standing instructions (kept on the server so visitors can't change them). `src/calc.ts`: a safe arithmetic parser.
 
 **Threads stay separate.** Each thread is its own Durable Object named `<visitor id>:<thread id>`, so one person's history lives in its own database and can't be reached by guessing another thread id. Requests to one thread run one at a time, so two tabs can't interleave a reply. No conversation state is kept in module scope.

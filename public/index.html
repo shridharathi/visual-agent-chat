@@ -1,6 +1,9 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>Visual Agent Chat</title>
 <meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="/vendor/katex/katex.min.css">
+<link rel="preload" as="font" type="font/woff2" crossorigin href="/vendor/katex/fonts/KaTeX_Main-Regular.woff2">
+<link rel="preload" as="font" type="font/woff2" crossorigin href="/vendor/katex/fonts/KaTeX_Math-Italic.woff2">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
 <style>
@@ -152,7 +155,19 @@ button.th-row:hover { background: var(--hover); }
 .answer p, .answer ul, .answer ol { margin: 0 0 .75em; }
 .answer ul, .answer ol { padding-left: 1.3em; }
 .answer li { margin: .15em 0; }
-.answer h3 { font-size: 15px; font-weight: 600; margin: 1em 0 .35em; }
+.answer h1, .answer h2, .answer h3, .answer h4 { font-weight: 600; line-height: 1.5; margin: 1.1em 0 .35em; }
+.answer h1 { font-size: 19px; } .answer h2 { font-size: 17px; } .answer h3 { font-size: 15px; } .answer h4 { font-size: 15px; color: var(--ink-2); }
+.answer .tbl { margin: .4em 0 1em; overflow-x: auto; }
+.answer table { border-collapse: collapse; min-width: 100%; width: max-content; font-size: 14px; line-height: 1.5; }
+.answer th, .answer td { text-align: left; vertical-align: top; padding: 8px 18px 8px 0; border-bottom: 1px solid var(--line); }
+.answer th { font-weight: 600; white-space: nowrap; border-bottom-color: var(--line-strong); }
+.answer tbody tr:last-child td { border-bottom: 0; }
+.answer blockquote { margin: 0 0 .75em; padding-left: 14px; border-left: 2px solid var(--line-strong); color: var(--ink-2); }
+.answer hr { border: 0; border-top: 1px solid var(--line); margin: 1.3em 0; }
+.answer del { color: var(--ink-3); }
+.answer li > input[type="checkbox"] { margin: 0 6px 0 -1.1em; vertical-align: -1px; }
+.answer .katex { font-size: 1.06em; }
+.answer .katex-display { margin: .9em 0; padding: 2px 0; overflow-x: auto; overflow-y: hidden; }
 .answer code { font-family: var(--mono); font-size: .9em; background: var(--inset); padding: .1em .35em; border-radius: 5px; }
 .answer pre { background: var(--inset); border-radius: 10px; padding: 10px 12px; overflow-x: auto; }
 .answer pre code { background: none; padding: 0; }
@@ -181,10 +196,19 @@ button.th-row:hover { background: var(--hover); }
 .th-row .p { white-space: normal; overflow: visible; text-overflow: clip; font-size: 13px; font-weight: 400; line-height: 1.5; color: var(--ink-3); transition: color .3s; }
 .th-row:last-child .p { color: var(--ink); }
 .th-label { font-size: 14.5px; }
-/* Desktop: "Thinking" stays at the top; the step stream sits in the vertical middle, level with the shape tile. */
+/* Three fixed slots for the step stream. The 4th step pushes the 1st up and away, the rest shift up one slot and the new one
+ * rises into the last slot. The block of slots is centred on the shape tile on desktop and stays put as steps arrive. */
+.trace { position: relative; height: 133px; margin: 10px 0 0; }
+.slots { position: absolute; inset: 0; }
+.th-row { position: absolute; left: 0; right: 0; top: 0; display: block; height: 39px; transform: translateY(var(--y, 0px));
+  transition: transform 480ms var(--ease), opacity 380ms var(--ease); animation: slot-in 480ms var(--ease) backwards; }
+.th-row .p { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.th-row.out { opacity: 0; pointer-events: none; }
+@keyframes slot-in { from { opacity: 0; transform: translateY(calc(var(--y, 0px) + 18px)); } }
 @media (min-width: 721px) {
   .think-side { align-self: stretch; position: relative; }
-  .think-side .trace { position: absolute; left: 0; right: 0; top: -8px; bottom: 0; margin: 0; display: flex; flex-direction: column; justify-content: center; }
+  .think-side .trace { position: absolute; left: 0; right: 0; top: -8px; bottom: 0; height: auto; margin: 0; }
+  .think-side .slots { inset: auto 0 auto 0; top: 50%; height: 133px; margin-top: -66px; }
   .th-head { position: relative; z-index: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -213,6 +237,10 @@ button.th-row:hover { background: var(--hover); }
 </div>
 
 
+<script src="/vendor/marked.umd.js"></script>
+<script src="/vendor/purify.min.js"></script>
+<script src="/vendor/katex/katex.min.js"></script>
+<script src="/md.js"></script>
 <script>
 (() => {
   const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
@@ -681,7 +709,7 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
 
   /* ===== tiny markdown ===== */
   const inline = s => esc(s).replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>').replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
-  function md(src) {
+  function mdLite(src) {
     const out = [], lines = src.split("\n"); let i = 0, para = [];
     const flush = () => { if (para.length) { out.push("<p>" + inline(para.join(" ")) + "</p>"); para = []; } };
     while (i < lines.length) {
@@ -697,7 +725,9 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
       para.push(l); i++;
     }
     flush(); return out.join("");
-  }
+  }  // Full Markdown (tables, LaTeX, ...) from /md.js; the small renderer above only runs if those scripts failed to load.
+  const md = (src, streaming) => window.renderMarkdown?.(src, streaming) ?? mdLite(src);
+
 
   /* ===== tools =====
    * The agent loop runs on the server (src/thread.ts). The page only turns each tool call it reports into a trace line and a shape. */
@@ -816,10 +846,24 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
     const clock = h("span", "th-time", "0.0s");
     status.append(label, clock);
     head.append(lead, status);
-    const coll = h("div", "collapse"); const inner = h("div"); const trace = h("div", "trace");
-    inner.appendChild(trace); coll.appendChild(inner);
+    const coll = h("div", "collapse"); const inner = h("div"); const trace = h("div", "trace"), slots = h("div", "slots");
+    trace.appendChild(slots); inner.appendChild(trace); coll.appendChild(inner);
     const side = h("div", "think-side"); side.append(head, coll); root.append(mindEl, side);
     let manual = null, auto = true, settled = false;
+    // At most three steps are on screen: slot 0, 1, 2. Older ones leave through slot -1 (up and faded) and are removed.
+    const PITCH = 47, SHOW = 3, all = [];
+    const place = () => {
+      const start = Math.max(0, all.length - SHOW);
+      all.forEach((r, i) => {
+        const slot = i - start;
+        if (slot >= 0) r.row.style.setProperty("--y", slot * PITCH + "px");
+        else if (!r.out) {
+          r.out = true;
+          if (slot === -1) { r.row.style.setProperty("--y", -PITCH + "px"); r.row.classList.add("out"); setTimeout(() => r.row.remove(), 520); }
+          else r.row.remove();
+        }
+      });
+    };
     const t0 = performance.now();
     const tick = setInterval(() => { clock.textContent = fmtElapsed((performance.now() - t0) / 1000); }, 100);
     const apply = () => {
@@ -833,7 +877,8 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
       step(text) {
         trace.querySelector(".p.shimmer")?.classList.remove("shimmer"); // only the step in progress shimmers
         const row = h("div", "th-row"); const p = h("span", "p" + (settled ? "" : " shimmer")); p.textContent = text;
-        row.appendChild(p); trace.appendChild(row);
+        row.appendChild(p); slots.appendChild(row);
+        all.push({ row, out: false }); place();
         return { set(t) { p.textContent = t; } };
       },
       settle() {
@@ -851,10 +896,10 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
     function render(withCaret) {
       const all = words(target);
       const cut = shown >= all.length ? target : (shown ? target.slice(0, all[shown - 1].index + all[shown - 1][0].length) : "");
-      body.innerHTML = md(cut);
+      body.innerHTML = md(cut, withCaret);
       const now = performance.now(); let k = 0;
       const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT), nodes = [];
-      while (walker.nextNode()) nodes.push(walker.currentNode);
+      while (walker.nextNode()) { const n = walker.currentNode; if (!n.parentElement?.closest(".katex")) nodes.push(n); } // don't split equation glyphs into word spans
       for (const node of nodes) {
         const parts = node.nodeValue.split(/(\s+)/), frag = document.createDocumentFragment(); let changed = false;
         for (const part of parts) {
