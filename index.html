@@ -1,0 +1,1062 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Visual Agent Chat</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a borderless prompt line; beneath it a dithered "mind" tile that morphs to each step the model narrates, then the answer. */
+:root {
+  --bg: #f7f7f7;
+  --surface: #ffffff;
+  --field: #ffffff;
+  --inset: #efeff1;
+  --ink: #1f2023;
+  --ink-2: #55575d;
+  --ink-3: #8e9097;
+  --line: #e2e3e6;
+  --line-strong: #cfd1d5;
+  --hover: rgba(20, 22, 28, .035);
+  --hover-2: rgba(20, 22, 28, .055);
+  --green: #2f8a5b;
+  --red: #c4483e;
+  --btn: #000000;
+  --btn-fg: #ffffff;
+  --hairline: 0 0 0 1px rgba(20, 22, 28, .07);
+  --tile-bg: #f7f7f7;
+  --tile-fg: #2c2d31;
+  --tile-ink: #2c2d31;
+  --sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --ease: cubic-bezier(0.23, 1, 0.32, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141416; --surface: #1d1e22; --field: #1d1e22; --inset: #1b1c20;
+    --ink: #ececef; --ink-2: #b4b6bc; --ink-3: #7d8088; --line: #2a2c31; --line-strong: #3a3d43;
+    --hover: rgba(255,255,255,.04); --hover-2: rgba(255,255,255,.065); --green: #5fc08c; --red: #ec7a70;
+    --btn: #ffffff; --btn-fg: #000000; --hairline: 0 0 0 1px rgba(255,255,255,.08); color-scheme: dark;
+    --tile-bg: #141416; --tile-fg: #d6d7db; --tile-ink: #d6d7db;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141416; --surface: #1d1e22; --field: #1d1e22; --inset: #1b1c20;
+  --ink: #ececef; --ink-2: #b4b6bc; --ink-3: #7d8088; --line: #2a2c31; --line-strong: #3a3d43;
+  --hover: rgba(255,255,255,.04); --hover-2: rgba(255,255,255,.065); --green: #5fc08c; --red: #ec7a70;
+  --btn: #ffffff; --btn-fg: #000000; --hairline: 0 0 0 1px rgba(255,255,255,.08); color-scheme: dark;
+  --tile-bg: #141416; --tile-fg: #d6d7db; --tile-ink: #d6d7db;
+}
+
+[hidden] { display: none !important; }
+html, body { min-height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+* { box-sizing: border-box; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
+
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes fade-up { from { opacity: 0; transform: translateY(4px); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes shimmer-text { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@keyframes pixel-on { 0%, 100% { opacity: .15; } 35% { opacity: 1; } }
+@keyframes blur-in { from { opacity: 0; filter: blur(4px); } to { opacity: 1; filter: blur(0); } }
+
+.stage {
+  width: 100%;
+  padding-left: max(16px, 10vw, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, 7.5vw, env(safe-area-inset-right, 0px));
+  padding-block: 18vh 80px;
+}
+
+/* ---------- prompt line ---------- */
+.prompt { display: flex; align-items: center; gap: 10px; }
+/* ---------- answer area ---------- */
+.turn { display: flex; flex-direction: column; gap: 12px; }
+.answer a { color: inherit; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+.answer a:hover { text-decoration-color: currentColor; }
+.prompt textarea {
+  flex: 1; min-width: 0; border: 0; outline: 0; resize: none; background: none; overflow: hidden;
+  font: 400 16px/24px var(--sans); letter-spacing: -.005em; color: var(--ink); padding: 0;
+}
+.prompt textarea::placeholder { color: var(--ink-3); }
+.send {
+  flex: none; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--btn); color: var(--btn-fg); display: grid; place-items: center;
+  transition: opacity .15s, transform .1s;
+}
+.send:disabled { opacity: .18; cursor: default; }
+.send:not(:disabled):active { transform: scale(.94); }
+
+.status { margin: 8px 0 0; font-size: 13px; color: var(--ink-3); }
+
+/* ---------- mind tile (dithering) ---------- */
+.run { margin-top: 20px; max-width: 880px; display: flex; flex-direction: column; gap: 12px; }
+.mind {
+  position: relative; width: min(340px, 100%); aspect-ratio: 1; max-width: 100%; margin-block: -8px 0;
+  overflow: hidden; background: transparent;
+}
+.mind canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; display: block; }
+.mind-fallback { position: absolute; inset: 0; display: grid; place-items: center; color: var(--tile-fg); font: 12px var(--mono); }
+
+/* ---------- shared ---------- */
+.shimmer {
+  background-image: linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%);
+  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: shimmer-text 1.4s linear infinite;
+}
+.grid3 { display: inline-grid; flex: none; grid-template-columns: repeat(3, 4px); gap: 1.5px; }
+.grid3 > span { width: 4px; height: 4px; border-radius: 1px; background: var(--ink); opacity: .15; }
+.elapsed { font-family: var(--mono); font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.chev { flex: none; transition: transform 300ms var(--ease); }
+.collapse { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 400ms var(--ease), opacity 400ms var(--ease); }
+.collapse.open { grid-template-rows: 1fr; opacity: 1; }
+.collapse > div { min-height: 0; overflow: hidden; }
+
+/* ThinkingState */
+.think { display: flex; flex-direction: row-reverse; align-items: flex-start; gap: 44px; animation: fade-up 300ms var(--ease) both; }
+.think-side { flex: 1; min-width: 0; padding-top: 28px; display: flex; flex-direction: column; }
+@media (max-width: 720px) { .think { flex-direction: column; gap: 12px; } .think-side { padding-top: 0; width: 100%; } }
+.th-head { position: relative; padding: 2px 0; display: flex; width: fit-content; align-items: baseline; gap: 10px; }
+.th-lead { position: absolute; left: -30px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; display: grid; place-items: center; color: var(--ink-3); transition: color .1s; }
+.th-head:hover .th-lead { color: var(--ink); }
+.th-label { font-size: 15px; font-weight: 500; white-space: nowrap; color: var(--ink); }
+.th-label.done { animation: fade-in 350ms ease-out both; }
+.th-time { font-size: 15px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.trace { margin: 4px 0 0 5px; padding: 4px 0 4px 16px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
+.th-row { min-height: 28px; display: flex; align-items: center; gap: 8px; padding: 2px 6px; border-radius: 6px; text-align: left; animation: fade-up 320ms var(--ease) both; transition: background .1s; }
+button.th-row:hover { background: var(--hover); }
+.th-row.active { background: var(--hover-2); }
+.th-row .p { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 500; color: var(--ink); }
+.th-row .s { flex: none; font-size: 11px; color: var(--ink-3); font-family: var(--mono); text-transform: lowercase; }
+.spinner { width: 12px; height: 12px; flex: none; border-radius: 50%; border: 1.5px solid var(--line-strong); border-top-color: var(--ink-2); animation: spin 700ms linear infinite; }
+
+/* StreamingText */
+.answer { font-size: 15px; line-height: 1.95; color: var(--ink); overflow-wrap: anywhere; min-width: 0; }
+.answer:empty { display: none; }
+.answer > :first-child { margin-top: 0; }
+.answer > :last-child { margin-bottom: 0; }
+.answer p, .answer ul, .answer ol { margin: 0 0 .75em; }
+.answer ul, .answer ol { padding-left: 1.3em; }
+.answer li { margin: .15em 0; }
+.answer h3 { font-size: 15px; font-weight: 600; margin: 1em 0 .35em; }
+.answer code { font-family: var(--mono); font-size: .9em; background: var(--inset); padding: .1em .35em; border-radius: 5px; }
+.answer pre { background: var(--inset); border-radius: 10px; padding: 10px 12px; overflow-x: auto; }
+.answer pre code { background: none; padding: 0; }
+.w { animation: blur-in 380ms ease-out both; }
+.caret { display: inline-block; width: 2px; height: 15px; margin-left: 2px; border-radius: 999px; background: var(--ink); transform: translateY(2px); animation: fade-in 150ms ease-out both; }
+.actions { margin-top: 2px; display: flex; align-items: center; gap: 2px; animation: fade-in 400ms ease-out both; }
+.act { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 6px; color: var(--ink-3); transition: background .1s, color .1s; }
+.act:hover { background: var(--hover-2); color: var(--ink-2); }
+.act[aria-pressed="true"] { color: var(--ink); }
+.act-note { margin-left: 6px; font-size: 12px; color: var(--ink-3); animation: fade-in 200ms ease-out both; }
+.fu { margin-top: 6px; }
+.fu-title { margin: 0; font-size: 12px; font-weight: 500; color: var(--ink-2); }
+.fu-list { margin-top: 2px; display: flex; flex-direction: column; }
+.fu-item { margin-inline: -6px; padding: 6px; display: flex; align-items: center; gap: 8px; text-align: left; border-radius: 7px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--ink); transition: background .1s; animation: fade-up 350ms var(--ease) both; }
+.fu-item:hover { background: var(--hover-2); }
+.note { margin: 0; font-size: 12.5px; color: var(--ink-3); }
+
+/* ---------- simplified thinking: plain step lines only ---------- */
+.th-time { font-size: 14.5px; }
+.th-head { align-items: center; }
+.th-lead { position: static; transform: none; } /* icon sits inline so the block starts at the request's left edge */
+.think-side { padding-top: 8px; }
+.trace { margin: 10px 0 0; padding: 0; border-left: 0; gap: 11px; }
+.th-row { min-height: 0; padding: 0; gap: 0; background: none !important; }
+.th-row > svg, .th-row .spinner, .th-row .s { display: none; }
+.th-row .p { white-space: normal; overflow: visible; text-overflow: clip; font-size: 13px; font-weight: 400; line-height: 1.5; color: var(--ink-3); transition: color .3s; }
+.th-row:last-child .p { color: var(--ink); }
+.th-label { font-size: 14.5px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+  .grid3 > span { animation: none !important; }
+  .shimmer { animation: none; color: var(--ink-3); }
+}
+</style>
+
+<div class="stage">
+  <form class="prompt" id="prompt" autocomplete="off">
+    <textarea id="input" rows="1" placeholder="Ask anything." aria-label="Ask the agent"></textarea>
+    <button class="send" id="send" type="submit" aria-label="Send" disabled>
+      <svg id="sendIcon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+    </button>
+  </form>
+  <p class="status" id="status" hidden></p>
+
+  <section class="run" id="run" aria-live="polite">
+    <div class="mind" id="mind" hidden>
+      <canvas id="dither" aria-hidden="true"></canvas>
+    </div>
+    <div id="runBody"></div>
+  </section>
+</div>
+
+
+<script>
+(() => {
+  const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const svg = (inner, size = 14, extra = "") => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" ${extra}>${inner}</svg>`;
+  const STROKE = 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
+  const CHEV_DOWN = '<path d="M6 9l6 6 6-6"/>';
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* =====================================================================
+   * DITHER MIND — WebGL2 ordered (4×4 Bayer) dithering of morphing SDF shapes.
+   * Rendered at one fragment per dither cell, upscaled with pixelated sampling.
+   * ===================================================================== */
+  const SHAPES = ["sphere","diamond","chocolate","gift","heart","book","coffee","flower","star","ring","watch","music",
+    "camera","plane","house","tree","cake","wine","shirt","search","person","clock","calculator","bulb","globe","bag",
+    "leaf","gamepad","headphones","laptop","coin","cube","jigsaw","robotarm"];
+  const ALIAS = { gem:"diamond", jewel:"diamond", jewelry:"ring", necklace:"diamond", candy:"chocolate", sweets:"chocolate", dessert:"cake",
+    present:"gift", box:"gift", love:"heart", romance:"heart", cup:"coffee", tea:"coffee", mug:"coffee", note:"music", song:"music", vinyl:"music",
+    photo:"camera", travel:"plane", flight:"plane", trip:"plane", home:"house", plant:"leaf", garden:"flower", nature:"tree",
+    birthday:"cake", drink:"wine", clothes:"shirt", fashion:"shirt", look:"search", find:"search", user:"person", people:"person",
+    time:"clock", math:"calculator", money:"coin", price:"coin", budget:"coin", idea:"bulb", world:"globe", place:"globe",
+    shopping:"bag", rubik:"cube", rubiks:"cube", puzzle:"cube", shop:"bag", game:"gamepad", gaming:"gamepad", audio:"headphones", tech:"laptop", computer:"laptop", reading:"book" };
+  ALIAS.robot = "robotarm"; ALIAS.arm = "robotarm"; ALIAS.robotics = "robotarm";
+  // Broader vocabulary so any topic lands on a fitting shape.
+  Object.assign(ALIAS, {
+    code:"laptop", coding:"laptop", software:"laptop", program:"laptop", programming:"laptop", app:"laptop", website:"laptop", web:"laptop", data:"laptop", ai:"bulb", model:"cube", api:"laptop", bug:"search", debug:"search", server:"cube", database:"cube",
+    science:"bulb", physics:"sphere", space:"star", planet:"sphere", astronomy:"star", universe:"star", chemistry:"bulb", biology:"leaf", health:"heart", body:"person", medicine:"heart", fitness:"person", exercise:"person", sport:"person", sports:"person", run:"person", running:"person",
+    history:"clock", past:"clock", future:"clock", schedule:"clock", deadline:"clock", plan:"clock", planning:"clock", calendar:"clock", date:"clock",
+    write:"book", writing:"book", essay:"book", story:"book", poem:"book", poetry:"book", letter:"book", email:"book", learn:"book", learning:"book", study:"book", research:"search", question:"search", check:"search", compare:"search", analyze:"search", analysis:"search",
+    finance:"coin", invest:"coin", investing:"coin", stock:"coin", stocks:"coin", cost:"coin", costs:"coin", pay:"coin", salary:"coin", tax:"coin", cash:"coin", economy:"globe",
+    food:"cake", cook:"cake", cooking:"cake", recipe:"cake", meal:"cake", dinner:"cake", restaurant:"wine", party:"cake", celebration:"cake", bar:"wine",
+    city:"house", country:"globe", geography:"globe", language:"globe", culture:"globe", politics:"globe", weather:"tree", climate:"tree", environment:"leaf", animal:"tree", pet:"heart", dog:"heart", cat:"heart",
+    friend:"person", family:"person", team:"person", work:"bag", job:"bag", career:"bag", business:"bag", meeting:"clock", art:"flower", design:"star", paint:"flower", film:"camera", movie:"camera", video:"camera", picture:"camera", image:"camera",
+    answer:"bulb", insight:"bulb", solution:"bulb", decide:"star", decision:"star", choice:"star", pick:"star", best:"star", result:"star", goal:"star", logic:"jigsaw", problem:"jigsaw", tricky:"jigsaw", piece:"jigsaw", build:"robotarm", machine:"robotarm", engineering:"robotarm",
+    sleep:"clock", music:"music", sound:"headphones", podcast:"headphones", car:"plane", transport:"plane", vacation:"plane", hotel:"house", rent:"house", move:"house", wedding:"ring", marriage:"ring", relationship:"heart",
+  });
+  const FALLBACK = ["sphere", "cube", "star", "bulb", "globe", "book", "search", "jigsaw"];
+  const normShape = s => {
+    s = String(s || "").toLowerCase().trim().replace(/[^a-z0-9 -]/g, "");
+    if (!s) return "sphere";
+    if (SHAPES.includes(s)) return s;
+    if (ALIAS[s]) return ALIAS[s];
+    const sing = s.replace(/(ies)$/, "y").replace(/(es|s)$/, "");
+    if (SHAPES.includes(sing)) return sing;
+    if (ALIAS[sing]) return ALIAS[sing];
+    for (const w of s.split(/[\s-]+/)) { if (SHAPES.includes(w)) return w; if (ALIAS[w]) return ALIAS[w]; }
+    let hsh = 0; for (const c of s) hsh = (hsh * 31 + c.charCodeAt(0)) >>> 0;
+    return FALLBACK[hsh % FALLBACK.length]; // unknown word: a stable, varied pick instead of always a sphere
+  };
+
+  const FRAG = `#version 300 es
+precision highp float;
+uniform vec2 uRes; uniform float uTime; uniform int uA; uniform int uB; uniform float uT;
+uniform float uEnergy; uniform float uScale; uniform vec3 uBack; uniform vec3 uFront; uniform float uForm; uniform float uST;
+uniform int uAxis; uniform float uLayer; uniform float uAngle;
+out vec4 outColor;
+float dot2(vec2 v){return dot(v,v);}
+mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+float sdCircle(vec2 p,float r){return length(p)-r;}
+float sdBox(vec2 p,vec2 b){vec2 d=abs(p)-b;return length(max(d,0.))+min(max(d.x,d.y),0.);}
+float sdRBox(vec2 p,vec2 b,float r){return sdBox(p,b-r)-r;}
+float sdSeg(vec2 p,vec2 a,vec2 b){vec2 pa=p-a,ba=b-a;float h=clamp(dot(pa,ba)/dot(ba,ba),0.,1.);return length(pa-ba*h);}
+float sdTri(vec2 p,vec2 p0,vec2 p1,vec2 p2){
+  vec2 e0=p1-p0,e1=p2-p1,e2=p0-p2,v0=p-p0,v1=p-p1,v2=p-p2;
+  vec2 q0=v0-e0*clamp(dot(v0,e0)/dot(e0,e0),0.,1.),q1=v1-e1*clamp(dot(v1,e1)/dot(e1,e1),0.,1.),q2=v2-e2*clamp(dot(v2,e2)/dot(e2,e2),0.,1.);
+  float s=sign(e0.x*e2.y-e0.y*e2.x);
+  vec2 d=min(min(vec2(dot(q0,q0),s*(v0.x*e0.y-v0.y*e0.x)),vec2(dot(q1,q1),s*(v1.x*e1.y-v1.y*e1.x))),vec2(dot(q2,q2),s*(v2.x*e2.y-v2.y*e2.x)));
+  return -sqrt(d.x)*sign(d.y);}
+float sdTrap(vec2 p,float r1,float r2,float he){
+  vec2 k1=vec2(r2,he),k2=vec2(r2-r1,2.*he);p.x=abs(p.x);
+  vec2 ca=vec2(p.x-min(p.x,(p.y<0.)?r1:r2),abs(p.y)-he);
+  vec2 cb=p-k1+k2*clamp(dot(k1-p,k2)/dot2(k2),0.,1.);
+  float s=(cb.x<0.&&ca.y<0.)?-1.:1.;return s*sqrt(min(dot2(ca),dot2(cb)));}
+float sdStar5(vec2 p,float r,float rf){
+  const vec2 k1=vec2(0.809016994375,-0.587785252292);const vec2 k2=vec2(-0.809016994375,-0.587785252292);
+  p.x=abs(p.x);p-=2.*max(dot(k1,p),0.)*k1;p-=2.*max(dot(k2,p),0.)*k2;p.x=abs(p.x);p.y-=r;
+  vec2 ba=rf*vec2(-k1.y,k1.x)-vec2(0,1);float h=clamp(dot(p,ba)/dot(ba,ba),0.,r);
+  return length(p-ba*h)*sign(p.y*ba.x-p.x*ba.y);}
+float sdRhombus(vec2 p,vec2 b){p=abs(p);vec2 q=b-2.*p;float h=clamp((q.x*b.x-q.y*b.y)/dot(b,b),-1.,1.);
+  float d=length(p-.5*b*vec2(1.-h,1.+h));return d*sign(p.x*b.y+p.y*b.x-b.x*b.y);}
+float sdHeart(vec2 p){p.x=abs(p.x);if(p.y+p.x>1.)return sqrt(dot2(p-vec2(.25,.75)))-sqrt(2.)/4.;
+  return sqrt(min(dot2(p-vec2(0,1)),dot2(p-.5*max(p.x+p.y,0.))))*sign(p.x-p.y);}
+float cut(float d,float g,float w){return max(d,w-g);}
+float lines(float v,float st){return abs(fract(v/st+.5)-.5)*st;}
+
+float shape(int id,vec2 p){
+  float d=1.,g=1.;
+  if(id==0){d=sdCircle(p,.56);}
+  else if(id==1){ // diamond
+    d=min(sdTrap(p-vec2(0,.285),.62,.36,.165),sdTri(p,vec2(-.62,.12),vec2(.62,.12),vec2(0,-.64)));
+    g=min(min(sdSeg(p,vec2(-.36,.45),vec2(-.2,.12)),sdSeg(p,vec2(.36,.45),vec2(.2,.12))),abs(p.y-.12));
+    g=min(g,min(sdSeg(p,vec2(-.2,.12),vec2(0,-.64)),sdSeg(p,vec2(.2,.12),vec2(0,-.64))));
+    g=min(g,min(sdSeg(p,vec2(0,.45),vec2(-.2,.12)),sdSeg(p,vec2(0,.45),vec2(.2,.12))));
+    d=cut(d,g,.016);}
+  else if(id==2){ // chocolate bar
+    d=sdRBox(p,vec2(.42,.62),.06);
+    g=min(abs(p.x),lines(p.y+.31,.31));d=cut(d,max(g,sdBox(p,vec2(.36,.56))),.022);
+    d=cut(d,abs(sdBox(p,vec2(.36,.56))),.012);}
+  else if(id==3){ // gift
+    float lift=.07*(.5+.5*sin(uTime*3.));p.y-=.02*sin(uTime*3.+1.2);
+    d=min(sdRBox(p-vec2(0,-.12),vec2(.48,.4),.04),sdRBox(p-vec2(0,.34+lift),vec2(.55,.1),.03));
+    d=cut(d,min(abs(abs(p.x)-.08),abs(p.y-.23-lift*step(.23,p.y))),.016);
+    d=min(d,abs(length((p-vec2(-.15,.56+lift))*vec2(1,1.5))-.1)-.04);
+    d=min(d,abs(length((p-vec2(.15,.56+lift))*vec2(1,1.5))-.1)-.04);}
+  else if(id==4){d=sdHeart(p/.78+vec2(0,.55))*.78;}
+  else if(id==5){ // open book
+    d=min(sdRBox(p-vec2(-.31,0),vec2(.29,.42),.03),sdRBox(p-vec2(.31,0),vec2(.29,.42),.03));
+    g=min(abs(p.x),max(lines(p.y,.12),sdBox(vec2(abs(p.x)-.31,p.y),vec2(.19,.3))));d=cut(d,g,.014);}
+  else if(id==6){ // coffee
+    d=sdRBox(p-vec2(-.08,-.08),vec2(.34,.34),.1);
+    d=min(d,abs(length(p-vec2(.28,-.06))-.17)-.05);
+    d=min(d,sdRBox(p-vec2(-.05,-.5),vec2(.55,.04),.04));
+    for(int i=0;i<3;i++){float x=-.22+.14*float(i);
+      float s=max(abs(p.x-x-.04*sin(p.y*13.+uTime*3.+float(i)))-.024,abs(p.y-.52)-.15);d=min(d,s);}
+    d=cut(d,abs(p.y-.18),.014);}
+  else if(id==7){ // flower
+    float a=atan(p.y,p.x)+uTime*.15,r=length(p);
+    d=r-(.3+.28*pow(abs(cos(2.5*a)),.6));d=cut(d,abs(r-.15),.02);}
+  else if(id==8){d=sdStar5(rot(sin(uTime*.4)*.1)*p,.66,.45);}
+  else if(id==9){ // ring
+    d=abs(length(p-vec2(0,-.14))-.4)-.07;d=min(d,sdRhombus(p-vec2(0,.36),vec2(.2,.16)));
+    d=cut(d,abs(p.y-.36),.012);}
+  else if(id==10){ // watch
+    d=min(sdCircle(p,.36),sdRBox(p,vec2(.2,.74),.06));
+    float a=uTime*.8;vec2 h1=vec2(sin(a),cos(a))*.22,h2=vec2(sin(a*.08),cos(a*.08))*.15;
+    g=min(abs(length(p)-.29),min(sdSeg(p,vec2(0),h1),sdSeg(p,vec2(0),h2)));d=cut(d,g,.016);}
+  else if(id==11){ // music
+    d=min(sdCircle((p-vec2(-.3,-.4))*vec2(1,1.25),.14),sdCircle((p-vec2(.3,-.3))*vec2(1,1.25),.14));
+    d=min(d,sdSeg(p,vec2(-.17,-.4),vec2(-.17,.38))-.035);d=min(d,sdSeg(p,vec2(.43,-.3),vec2(.43,.48))-.035);
+    d=min(d,sdSeg(p,vec2(-.17,.38),vec2(.43,.48))-.06);}
+  else if(id==12){ // camera
+    d=min(sdRBox(p-vec2(0,-.06),vec2(.62,.38),.08),sdRBox(p-vec2(-.2,.36),vec2(.17,.08),.03));
+    d=cut(d,min(abs(length(p-vec2(0,-.06))-.23),abs(length(p-vec2(0,-.06))-.11)),.025);}
+  else if(id==13){ // plane
+    vec2 q=rot(-.6)*p;d=sdSeg(q,vec2(0,-.6),vec2(0,.6))-.08;
+    d=min(d,sdTri(q,vec2(-.62,-.04),vec2(.62,-.04),vec2(0,.26)));
+    d=min(d,sdTri(q,vec2(-.24,-.64),vec2(.24,-.64),vec2(0,-.44)));}
+  else if(id==14){ // house
+    d=min(sdBox(p-vec2(0,-.22),vec2(.42,.36)),sdTri(p,vec2(-.62,.12),vec2(.62,.12),vec2(0,.62)));
+    d=max(d,-sdBox(p-vec2(0,-.38),vec2(.1,.2)));d=cut(d,abs(sdBox(p-vec2(.24,-.12),vec2(.09,.09))),.018);}
+  else if(id==15){ // tree
+    d=min(min(sdTri(p,vec2(-.5,-.2),vec2(.5,-.2),vec2(0,.2)),sdTri(p,vec2(-.4,.02),vec2(.4,.02),vec2(0,.42))),sdTri(p,vec2(-.3,.24),vec2(.3,.24),vec2(0,.64)));
+    d=min(d,sdBox(p-vec2(0,-.42),vec2(.08,.22)));}
+  else if(id==16){ // cake
+    d=min(sdRBox(p-vec2(0,-.36),vec2(.56,.2),.04),sdRBox(p-vec2(0,-.02),vec2(.38,.16),.04));
+    d=min(d,sdBox(p-vec2(0,.28),vec2(.03,.12)));
+    d=min(d,sdCircle((p-vec2(0,.5))*vec2(1.,.75),.055+.01*sin(uTime*9.)));
+    d=cut(d,min(abs(p.y+.2-.03*sin(p.x*22.)),abs(p.y-.08-.025*sin(p.x*22.))),.014);}
+  else if(id==17){ // wine
+    d=max(sdCircle(p-vec2(0,.22),.32),p.y-.42);d=min(d,sdBox(p-vec2(0,-.26),vec2(.03,.24)));
+    d=min(d,sdRBox(p-vec2(0,-.52),vec2(.26,.035),.02));d=cut(d,abs(p.y-.18),.012);}
+  else if(id==18){ // shirt
+    d=sdRBox(p-vec2(0,-.12),vec2(.32,.48),.04);
+    d=min(d,sdRBox(rot(.65)*(p-vec2(-.42,.2)),vec2(.17,.12),.03));
+    d=min(d,sdRBox(rot(-.65)*(p-vec2(.42,.2)),vec2(.17,.12),.03));
+    d=max(d,-sdCircle(p-vec2(0,.4),.13));d=cut(d,abs(p.x),.01);}
+  else if(id==19){ // search
+    vec2 q=p-.14*vec2(sin(uTime*1.7),cos(uTime*1.3));
+    d=abs(length(q-vec2(-.1,.1))-.32)-.07;d=min(d,sdSeg(q,vec2(.16,-.16),vec2(.5,-.5))-.08);}
+  else if(id==20){ // person
+    d=min(sdCircle(p-vec2(0,.32),.2),max(sdCircle(p-vec2(0,-.52),.46),-(p.y+.52)));}
+  else if(id==21){ // clock
+    d=sdCircle(p,.56);float a=uTime*.6;
+    g=min(abs(length(p)-.48),min(sdSeg(p,vec2(0),vec2(sin(a),cos(a))*.36),sdSeg(p,vec2(0),vec2(sin(a/12.),cos(a/12.))*.24)));
+    d=cut(d,g,.02);}
+  else if(id==22){ // calculator
+    d=sdRBox(p,vec2(.4,.6),.06);d=cut(d,abs(sdBox(p-vec2(0,.36),vec2(.3,.12))),.016);
+    g=max(min(lines(p.x+.1,.2),lines(p.y+.1,.2)),sdBox(p-vec2(0,-.2),vec2(.3,.3)));d=cut(d,g,.018);}
+  else if(id==23){ // bulb
+    d=min(sdCircle(p-vec2(0,.16),.38),sdRBox(p-vec2(0,-.36),vec2(.16,.15),.03));
+    d=cut(d,max(lines(p.y,.08),sdBox(p-vec2(0,-.36),vec2(.2,.12))),.012);
+    d=cut(d,sdSeg(p,vec2(-.1,.05),vec2(.1,.05))+.0,.018);}
+  else if(id==24){ // globe
+    d=sdCircle(p,.56);float c=cos(uTime*.7);
+    g=min(min(abs(p.y),abs(abs(p.y)-.3)),abs(length(vec2(p.x/max(abs(c)*.56,.02),p.y/.56))-1.)*abs(c)*.56);
+    g=min(g,abs(length(vec2(p.x/max(abs(sin(uTime*.7))*.56,.02),p.y/.56))-1.)*abs(sin(uTime*.7))*.56);
+    d=cut(d,g,.015);}
+  else if(id==25){ // bag
+    d=sdTrap(p-vec2(0,-.16),.52,.42,.4);d=min(d,max(abs(length(p-vec2(0,.24))-.2)-.04,-(p.y-.24)));}
+  else if(id==26){ // leaf
+    vec2 q=rot(.7)*p;d=max(length(q-vec2(-.32,0))-.62,length(q-vec2(.32,0))-.62);
+    d=cut(d,max(abs(q.x),abs(q.y)-.5),.016);}
+  else if(id==27){ // gamepad
+    d=min(sdRBox(p,vec2(.62,.28),.24),min(sdCircle(p-vec2(-.4,-.2),.24),sdCircle(p-vec2(.4,-.2),.24)));
+    d=max(d,-min(sdBox(p-vec2(-.32,.02),vec2(.1,.03)),sdBox(p-vec2(-.32,.02),vec2(.03,.1))));
+    d=max(d,-min(sdCircle(p-vec2(.28,.08),.045),sdCircle(p-vec2(.4,-.04),.045)));}
+  else if(id==28){ // headphones
+    d=max(abs(length(p-vec2(0,-.05))-.46)-.05,-(p.y+.05));
+    d=min(d,min(sdRBox(p-vec2(-.46,-.2),vec2(.1,.2),.06),sdRBox(p-vec2(.46,-.2),vec2(.1,.2),.06)));}
+  else if(id==29){ // laptop
+    d=min(sdRBox(p-vec2(0,.12),vec2(.5,.34),.03),sdRBox(p-vec2(0,-.3),vec2(.64,.04),.03));
+    d=cut(d,abs(sdBox(p-vec2(0,.12),vec2(.43,.27))),.014);}
+  else if(id==32){ // jigsaw piece: knobs out on top and right, sockets cut on left and bottom; tilts and breathes
+    p=rot(.14*sin(uTime*1.8))*p;float k=.13+.018*sin(uTime*3.2);
+    d=sdRBox(p,vec2(.36),.02);
+    d=min(d,sdCircle(p-vec2(0,.47),k));
+    d=min(d,sdCircle(p-vec2(.47,0),k));
+    d=max(d,-sdCircle(p-vec2(-.36,0),k));
+    d=max(d,-sdCircle(p-vec2(0,-.36),k));}
+  else if(id==33){ // robot arm: swinging links with servo joints and a opening and closing gripper
+    float a1=.28*sin(uTime*1.2),a2=.4*sin(uTime*1.7+1.),jaw=.16+.16*sin(uTime*3.4);
+    vec2 J0=vec2(0,-.44);
+    vec2 J1=J0+rot(a1)*vec2(-.24,.44);
+    vec2 J2=J1+rot(a1+a2)*vec2(.44,.28);
+    mat2 rg=rot(a1+a2);
+    vec2 T1=J2+rg*rot(jaw)*vec2(.26,.12), T2=J2+rg*rot(-jaw)*vec2(.24,-.14);
+    d=sdRBox(p-vec2(0,-.52),vec2(.34,.08),.03);
+    d=min(d,sdSeg(p,J0,J1)-.07);
+    d=min(d,sdSeg(p,J1,J2)-.06);
+    d=min(d,sdSeg(p,J2,T1)-.04);
+    d=min(d,sdSeg(p,J2,T2)-.04);
+    d=min(d,min(sdCircle(p-J0,.1),min(sdCircle(p-J1,.1),sdCircle(p-J2,.09))));
+    d=max(d,-min(sdCircle(p-J0,.035),min(sdCircle(p-J1,.035),sdCircle(p-J2,.032))));}
+  else { // coin
+    d=sdCircle(p,.56);d=cut(d,abs(length(p)-.46),.02);
+    d=cut(d,max(abs(p.x),abs(p.y)-.3),.02);
+    d=cut(d,max(abs(length(p-vec2(0,.08))-.12),p.x+.0),.02);
+    d=cut(d,max(abs(length(p-vec2(0,-.08))-.12),-p.x),.02);}
+  return d;
+}
+float field(vec2 p){
+  if(uT<=0.001)return shape(uA,p);
+  if(uT>=.999)return shape(uB,p);
+  return mix(shape(uA,p),shape(uB,p),uT);}
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+// Dithering core ported from Paper Shaders (https://shaders.paper.design/dithering, Apache-2.0, Copyright 2026 Paper).
+const int bayer2x2[4]=int[4](0,2,3,1);
+const int bayer4x4[16]=int[16](0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5);
+const int bayer8x8[64]=int[64](0,32,8,40,2,34,10,42,48,16,56,24,50,18,58,26,12,44,4,36,14,46,6,38,60,28,52,20,62,30,54,22,3,35,11,43,1,33,9,41,51,19,59,27,49,17,57,25,15,47,7,39,13,45,5,37,63,31,55,23,61,29,53,21);
+float getBayerValue(vec2 uv,int size){
+  ivec2 pos=ivec2(fract(uv/float(size))*float(size));
+  int index=pos.y*size+pos.x;
+  if(size==2) return float(bayer2x2[index])/4.0;
+  else if(size==4) return float(bayer4x4[index])/16.0;
+  else if(size==8) return float(bayer8x8[index])/64.0;
+  return 0.0;
+}
+mat3 R;
+// Extrude the 2D silhouette into a rounded solid slab.
+float slab(int id,vec3 p){
+  vec2 q=vec2(shape(id,p.xy)+.04,abs(p.z)-.16);
+  return min(max(q.x,q.y),0.)+length(max(q,0.))-.04;
+}
+// 3x3x3 puzzle: 27 rounded cubies, one layer optionally mid-turn.
+float cubies(vec3 q,int ax,float lay,bool inLayer){
+  vec3 c=clamp(floor(q/.36+.5),-1.,1.);
+  if(inLayer) c[ax]=lay;
+  else if(abs(c[ax]-lay)<.5) c[ax]=lay!=0.?0.:(q[ax]>0.?1.:-1.);
+  vec3 d=abs(q-c*.36)-vec3(.135);
+  return length(max(d,0.))+min(max(d.x,max(d.y,d.z)),0.)-.03;
+}
+float cube3(vec3 p){
+  if(abs(uAngle)<1e-4) return cubies(p,0,9.,false);
+  float c=cos(uAngle),s=sin(uAngle);vec3 pr=p;mat2 m=mat2(c,-s,s,c);
+  if(uAxis==0) pr.yz=m*p.yz; else if(uAxis==1) pr.xz=m*p.xz; else pr.xy=m*p.xy;
+  return min(cubies(p,uAxis,uLayer,false),cubies(pr,uAxis,uLayer,true));
+}
+float obj(int id,vec3 p){return id==31?cube3(p):slab(id,p);}
+float map(vec3 w){
+  vec3 p=R*w/uScale;float d;
+  if(uT<=.001) d=obj(uA,p); else if(uT>=.999) d=obj(uB,p); else d=mix(obj(uA,p),obj(uB,p),uT);
+  return d*uScale;
+}
+vec3 calcN(vec3 p){
+  const vec2 k=vec2(1,-1);float e=.004;
+  return normalize(k.xyy*map(p+k.xyy*e)+k.yyx*map(p+k.yyx*e)+k.yxy*map(p+k.yxy*e)+k.xxx*map(p+k.xxx*e));
+}
+void main(){
+  vec2 uv=(gl_FragCoord.xy-.5*uRes)/(uRes.y*.5);
+  // Conjure: every cell first samples the shape from a random, swirled, enlarged position; as uForm -> 1 the dots pull together.
+  float kf=1.-uForm; kf=kf*kf;
+  vec2 cellc=floor(gl_FragCoord.xy);
+  // Soft, wobbling round edge for the loose dots so the cloud never shows the tile's square.
+  vec2 suv=uv; float sang=atan(suv.y,suv.x);
+  float sedge=.8+.1*sin(sang*3.+uTime*.6)+.07*sin(sang*5.-uTime*.9);
+  float fall=1.-smoothstep(sedge-.6,sedge+.12,length(suv));
+  vec2 jit=vec2(hash(cellc),hash(cellc+17.3))-.5;
+  jit+=.18*vec2(sin(uTime*1.7+hash(cellc+3.1)*6.283),cos(uTime*1.4+hash(cellc+9.7)*6.283)); // scattered dots drift
+  uv=rot(kf*(2.6+uTime*.35))*uv*(1.+kf*1.4)+jit*kf*2.6;
+  float fr=mix(uA==19?1.:0., uB==19?1.:0., uT);   // the search icon faces the camera
+  float yaw=(.55+.32*sin(uTime*.45))*(1.-.9*fr), pitch=(.42+.04*sin(uTime*.7))*(1.-.9*fr);
+  float cy=cos(yaw),sy=sin(yaw),cp=cos(pitch),sp=sin(pitch);
+  mat3 RY=mat3(cy,0.,sy, 0.,1.,0., -sy,0.,cy);
+  mat3 RX=mat3(1.,0.,0., 0.,cp,-sp, 0.,sp,cp);
+  R=RY*RX;
+  vec3 ro=vec3(0.,.05,3.3);
+  vec3 rd=normalize(vec3(uv*.92,-2.6));
+  vec3 L=normalize(vec3(-.55,.85,.5));
+  float lum=0.;
+  // Bounding sphere test keeps empty pixels cheap.
+  float b=dot(ro,rd),c=dot(ro,ro)-1.3*1.3*uScale*uScale,disc=b*b-c;
+  bool hit=false; float t=0.;
+  if(disc>0.){
+    t=max(-b-sqrt(disc),0.);float tmax=-b+sqrt(disc);
+    for(int i=0;i<72;i++){
+      float d=map(ro+rd*t);
+      if(d<.0015){hit=true;break;}
+      t+=d*.85;
+      if(t>tmax)break;
+    }
+  }
+  if(hit){
+    vec3 pos=ro+rd*t,n=calcN(pos);
+    float dif=max(dot(n,L),0.);
+    float rim=pow(1.-max(dot(n,-rd),0.),3.)*.25;
+    float lit=clamp(.18+.82*dif+rim,0.,1.);
+    lum=.12+.82*(1.-lit);
+  }else if(rd.y<0.){
+    // Dotted ground shadow under the object.
+    float tg=(-.82*uScale-ro.y)/rd.y; vec3 g=ro+rd*tg;
+    vec2 sp2=(g.xz-vec2(.18,-.05)*uScale)/uScale;
+    float sh=1.-smoothstep(.1,.75,length(sp2*vec2(1.,1.6)));
+    lum=sh*.2;
+  }
+  if(!hit){
+    vec2 cell=floor(gl_FragCoord.xy);
+    lum+=step(.992-.012*uEnergy,hash(cell+floor(uTime*10.)))*uEnergy*.6*smoothstep(1.4,.4,length(uv));
+  }
+  lum*=mix(1.,fall,kf);
+  lum=max(lum,step(.972,hash(cellc+3.1))*kf*.95*step(hash(cellc+7.7),fall));   // loose specks, thinning out toward the edge
+  // Paper's default dithering: type "4x4", size 2 (one fragment per 2 css px), grid centred on the canvas like Paper's pxSizeUV.
+  float dithering=getBayerValue(gl_FragCoord.xy-.5*uRes,4)-.5;
+  float res=step(.5,clamp(lum,0.,1.)+dithering);
+  outColor=res>.5?vec4(uFront,1.):vec4(0.);
+}`;
+  const VERT = `#version 300 es
+in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
+
+  function makeMind() {
+    const canvas = document.getElementById("dither");
+    const mind = document.getElementById("mind");
+    const CELL = 2; // css px per dither cell
+    const gl = canvas.getContext("webgl2", { antialias: false, alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: false, powerPreference: "low-power" });
+    let A = 0, B = 0, t0 = -1e9, formT0 = -1e9, form = 1, FORM_MS = 1400, energy = 0.25, energyTarget = 0.25, raf = 0, visible = true, shown = "sphere";
+    const api = {
+      show(name) {
+        name = normShape(name);
+        if (name !== shown) {
+          const now = performance.now(), t = Math.min(1, (now - t0) / 950);
+          A = t < .5 ? A : B; B = SHAPES.indexOf(name); t0 = now; shown = name;
+        }
+        kick();
+      },
+      scatter(name) { // dots float loose, held apart until conjure()
+        name = normShape(name); A = B = SHAPES.indexOf(name); t0 = -1e9; shown = name;
+        formT0 = Infinity; form = 0; kick();
+      },
+      conjure(name) {
+        name = normShape(name); A = B = SHAPES.indexOf(name); t0 = -1e9; shown = name;
+        formT0 = performance.now(); form = 0; kick();
+      },
+      turn() {},
+      live(on) { energyTarget = on ? 1 : .25; kick(); },
+    };
+    if (!gl) { mind.appendChild(h("div", "mind-fallback", "WebGL2 isn't available in this browser.")); return api; }
+    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s)); return s; };
+    const prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VERT)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FRAG));
+    gl.linkProgram(prog); gl.useProgram(prog);
+    const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(prog, "aPos"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    const U = n => gl.getUniformLocation(prog, n);
+    const u = { res: U("uRes"), time: U("uTime"), a: U("uA"), b: U("uB"), t: U("uT"), energy: U("uEnergy"), scale: U("uScale"), back: U("uBack"), front: U("uFront"), axis: U("uAxis"), layer: U("uLayer"), angle: U("uAngle"), form: U("uForm"), st: U("uST") };
+    gl.uniform1f(u.layer, 9); gl.uniform1f(u.angle, 0); gl.uniform1f(u.form, 1);
+    api.turn = (axis, layer, angle) => { gl.uniform1i(u.axis, axis); gl.uniform1f(u.layer, layer); gl.uniform1f(u.angle, angle); kick(); };
+    const hex = s => { s = s.trim().replace("#", ""); return [0, 2, 4].map(i => parseInt(s.slice(i, i + 2), 16) / 255); };
+    gl.clearColor(0, 0, 0, 0);
+    function setColors() {
+      const cs = getComputedStyle(document.documentElement);
+      gl.uniform3fv(u.back, hex(cs.getPropertyValue("--tile-bg") || "#f7f7f7"));
+      gl.uniform3fv(u.front, hex(cs.getPropertyValue("--tile-fg") || "#2c2d31"));
+      kick();
+    }
+    setColors();
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", setColors);
+    new MutationObserver(setColors).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    function resize() {
+      const r = mind.getBoundingClientRect();
+      const w = Math.max(1, Math.round(r.width / CELL)), hgt = Math.max(1, Math.round(r.height / CELL));
+      if (canvas.width !== w || canvas.height !== hgt) { canvas.width = w; canvas.height = hgt; gl.viewport(0, 0, w, hgt); }
+      gl.uniform2f(u.res, w, hgt); kick();
+    }
+    new ResizeObserver(resize).observe(mind);
+    new IntersectionObserver(es => { visible = es[0].isIntersecting; kick(); }).observe(mind);
+    document.addEventListener("visibilitychange", kick);
+    const ease = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+    const start = performance.now();
+    function frame(now) {
+      raf = 0;
+      const k = Math.min(1, (now - t0) / 950), t = ease(k);
+      energy += (energyTarget - energy) * .06;
+      gl.uniform1f(u.time, reduced ? 0 : (now - start) / 1000 * .7);
+      gl.uniform1i(u.a, A); gl.uniform1i(u.b, B); gl.uniform1f(u.t, t);
+      const fk = Math.max(0, Math.min(1, (now - formT0) / FORM_MS)); form = 1 - Math.pow(1 - fk, 3);
+      gl.uniform1f(u.form, form);
+      gl.uniform1f(u.st, Math.max(0, Math.min(60, (now - t0) / 1000)));
+      gl.uniform1f(u.energy, energy);
+      gl.uniform1f(u.scale, 1 + .06 * Math.sin(Math.PI * t));
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      const settling = k < 1 || form < 1 || Math.abs(energyTarget - energy) > .01;
+      if (visible && !document.hidden && (!reduced || settling)) raf = requestAnimationFrame(frame);
+    }
+    function kick() { if (!raf && visible && !document.hidden) raf = requestAnimationFrame(frame); }
+    resize();
+    return api;
+  }
+  const mind = makeMind();
+
+  /* ===== LoadingState grid ===== */
+  const chevron = Array.from({ length: 9 }, (_, i) => { const r = Math.floor(i / 3), c = i % 3; return (c + Math.abs(r - 1)) * 90; });
+  const ORBIT_ORDER = [0, 1, 2, 5, 8, 7, 6, 3];
+  const orbitD = Array.from({ length: 9 }, (_, i) => { const k = ORBIT_ORDER.indexOf(i); return k === -1 ? null : k * 110; });
+  const PATTERNS = { Drive: { delays: chevron, dur: 650 }, Orbit: { delays: orbitD, dur: 950 } };
+  function grid(variant = "Drive") {
+    const { delays, dur } = PATTERNS[variant];
+    const g = h("span", "grid3"); g.setAttribute("aria-hidden", "true");
+    delays.forEach(d => { const c = h("span"); if (d === null) c.style.opacity = ".07"; else c.style.animation = `pixel-on ${dur}ms ease-in-out ${d}ms infinite`; g.appendChild(c); });
+    return g;
+  }
+  const fmtElapsed = t => t < 60 ? t.toFixed(1) + "s" : Math.floor(t / 60) + "m " + (t % 60).toFixed(1) + "s";
+
+  /* ===== tiny markdown ===== */
+  const inline = s => esc(s).replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>').replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  function md(src) {
+    const out = [], lines = src.split("\n"); let i = 0, para = [];
+    const flush = () => { if (para.length) { out.push("<p>" + inline(para.join(" ")) + "</p>"); para = []; } };
+    while (i < lines.length) {
+      const l = lines[i];
+      if (/^```/.test(l)) { flush(); const code = []; i++; while (i < lines.length && !/^```/.test(lines[i])) code.push(lines[i++]); i++; out.push("<pre><code>" + esc(code.join("\n")) + "</code></pre>"); continue; }
+      if (/^#{1,4}\s/.test(l)) { flush(); out.push("<h3>" + inline(l.replace(/^#+\s/, "")) + "</h3>"); i++; continue; }
+      if (/^\s*([-*]|\d+\.)\s/.test(l)) {
+        flush(); const ordered = /^\s*\d+\./.test(l), items = [];
+        while (i < lines.length && /^\s*([-*]|\d+\.)\s/.test(lines[i])) items.push(lines[i++].replace(/^\s*([-*]|\d+\.)\s/, ""));
+        const t = ordered ? "ol" : "ul"; out.push(`<${t}>` + items.map(x => "<li>" + inline(x) + "</li>").join("") + `</${t}>`); continue;
+      }
+      if (!l.trim()) { flush(); i++; continue; }
+      para.push(l); i++;
+    }
+    flush(); return out.join("");
+  }
+
+  /* ===== tools =====
+   * Web search and page reading come from the viewer's "Parallel Search" connector (through the mcp capability);
+   * the rest run here in the page. Every tool call becomes a trace line and a shape. */
+  const WEB = "Parallel Search";
+  const clip = (s, n) => (s = String(s ?? "")).length > n ? s.slice(0, n) + "\n…[truncated]" : s;
+  const firstString = v => {
+    if (typeof v === "string") return v;
+    if (Array.isArray(v)) { for (const x of v) { const s = firstString(x); if (s) return s; } }
+    else if (v && typeof v === "object") { for (const k of ["query", "q", "search_queries", "queries", "objective", "url", "urls"]) if (k in v) { const s = firstString(v[k]); if (s) return s; } for (const x of Object.values(v)) { const s = firstString(x); if (s) return s; } }
+    return "";
+  };
+  const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return String(u).slice(0, 40); } };
+  const short = (s, n = 48) => (s = String(s).trim()).length > n ? s.slice(0, n - 1) + "…" : s;
+
+  // Runs model-written JavaScript in a throwaway worker, so it can't touch this page. 5 s limit.
+  const WORKER_SRC = `onmessage=async e=>{const out=[];const log=(...a)=>out.push(a.map(x=>typeof x==="string"?x:JSON.stringify(x)).join(" "));const console={log,info:log,warn:log,error:log};try{const r=await (new Function("console",'"use strict";return (async()=>{'+e.data+'\\n})()'))(console);postMessage({ok:true,out:out.join("\\n"),result:r===undefined?undefined:JSON.stringify(r)})}catch(err){postMessage({ok:false,out:out.join("\\n"),error:String(err&&err.message||err)})}}`;
+  let workerOk = false;
+  try { const u = URL.createObjectURL(new Blob([WORKER_SRC], { type: "text/javascript" })); new Worker(u).terminate(); workerOk = true; URL.revokeObjectURL(u); } catch {}
+  const runJs = code => new Promise((resolve, reject) => {
+    const u = URL.createObjectURL(new Blob([WORKER_SRC], { type: "text/javascript" })), w = new Worker(u);
+    const done = () => { clearTimeout(t); w.terminate(); URL.revokeObjectURL(u); };
+    const t = setTimeout(() => { done(); reject(new Error("Timed out after 5 seconds")); }, 5000);
+    w.onmessage = e => { done(); const d = e.data; d.ok ? resolve({ output: clip(d.out, 8000), result: clip(d.result, 4000) }) : reject(new Error(d.error + (d.out ? "\nOutput before the error:\n" + clip(d.out, 4000) : ""))); };
+    w.onerror = e => { done(); reject(new Error(e.message || "Worker error")); };
+    w.postMessage(String(code || ""));
+  });
+
+  const LOCAL_TOOLS = [
+    {
+      name: "get_user_context", shape: "clock", step: () => "Checking today's date and where you are",
+      description: "Returns the user's local date, time, time zone and language. Use for anything that depends on today's date, the season, the user's place or currency.",
+      run: () => ({
+        local_time: new Date().toLocaleString(navigator.language || "en-US", { dateStyle: "full", timeStyle: "short" }),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        language: navigator.language || "en-US",
+      }),
+    },
+    {
+      name: "calculate", shape: "calculator", step: a => "Calculating " + short(a.expression || "", 40),
+      description: "Evaluates one arithmetic expression with + - * / % ^ and parentheses. Use for quick math.",
+      inputSchema: { type: "object", properties: { expression: { type: "string" } }, required: ["expression"] },
+      run: a => {
+        const e = String(a.expression || "").replace(/\^/g, "**");
+        if (!e.trim() || !/^[\d\s+\-*/%.()e]*$/i.test(e)) throw new Error("Only numbers and + - * / % ^ ( ) are allowed");
+        const v = Function('"use strict";return (' + e + ")")();
+        if (typeof v !== "number" || !isFinite(v)) throw new Error("Result is not a finite number");
+        return { result: Math.round(v * 1e10) / 1e10 };
+      },
+    },
+    {
+      name: "run_javascript", shape: "laptop", step: () => "Running code", needs: () => workerOk,
+      description: "Runs JavaScript in an isolated sandbox with no network or DOM and returns console.log output and the returned value. Use for data processing, date math, simulations, unit conversions and anything calculate can't do. The code is the body of an async function: use `return` for the result.",
+      inputSchema: { type: "object", properties: { code: { type: "string", description: "Function body. console.log output is captured." } }, required: ["code"] },
+      run: a => runJs(a.code),
+    },
+  ];
+
+  // Connector tools: the schema comes from the connector itself (describeTool) so Claude sends exactly what it expects.
+  const WEB_TOOLS = {
+    web_search: {
+      shape: "search", step: a => { const s = firstString(a); return s ? `Searching the web for “${short(s)}”` : "Searching the web"; },
+      description: "Searches the web and returns current results with titles, URLs and excerpts. Use for anything recent, factual, about people, products, prices, events or anything you are not sure about.",
+      fallback: { type: "object", properties: { objective: { type: "string", description: "What you are trying to find out" }, search_queries: { type: "array", items: { type: "string" }, description: "1-3 keyword queries" } }, required: ["objective"] },
+    },
+    web_fetch: {
+      shape: "book", step: a => { const s = firstString(a); return s ? `Reading ${hostOf(s)}` : "Reading a page"; },
+      description: "Fetches web pages by URL and returns their text. Use to read a search result in full, or a link the user gave you.",
+      fallback: { type: "object", properties: { urls: { type: "array", items: { type: "string" } }, objective: { type: "string" } }, required: ["urls"] },
+    },
+  };
+  // Keep a connector schema under the 4 KB tool-schema limit by dropping nested descriptions if needed.
+  const fitSchema = s => {
+    if (JSON.stringify(s).length <= 3800) return s;
+    const strip = o => { if (Array.isArray(o)) return o.map(strip); if (o && typeof o === "object") { const r = {}; for (const [k, v] of Object.entries(o)) if (k !== "description" && k !== "examples") r[k] = strip(v); return r; } return o; };
+    const t = strip(s); return JSON.stringify(t).length <= 3800 ? t : null;
+  };
+
+  // One standing instruction turn leads every conversation. The status lines are a progress display, not hidden reasoning.
+  const MARK = "FOLLOWUPS:";
+  const RULES = (names, hasWeb) => `You are a helpful assistant in a chat page. Answer the user's latest message, using the earlier messages as context. Requests can be about anything: questions, research, current events, writing, code, math, planning or advice.
+
+The page shows a progress display while you work. As you go, write short status lines saying what you are doing, each on its own line in exactly this form:
+@scene <shape> | <status, under 12 words, specific to this request>
+<shape> is one word from: ${SHAPES.join(", ")}.
+Pick the object the status is about, or the closest visual metaphor: an idea -> bulb, code -> laptop, time or dates -> clock, places -> globe, reading -> book, money -> coin, a hard part -> jigsaw, structure or systems -> cube, people -> person, looking something up -> search, the final pick -> star.
+Write the first status line right away, then 2 to 5 more as you work, including one before each tool call.
+
+Tools available: ${names.join(", ")}.${hasWeb ? " Search the web for anything current, factual or that you are unsure of, rather than relying on memory, and read the most relevant pages when the snippets aren't enough. Cite the pages you used as Markdown links." : " There is no web access in this session, so say so if the answer needs current information."}
+
+When you have what you need, write a line containing only @answer, then the answer in concise Markdown with no preamble; use code blocks for code.
+Final line: ${MARK} <follow-up question 1> | <follow-up question 2>`;
+
+  function parseStream(text) {
+    const lines = text.split("\n"), thoughts = [], ans = [];
+    const at = lines.findIndex(l => /^\s*@answer\s*$/.test(l));
+    lines.forEach((l, i) => {
+      const m = l.match(/^\s*@(?:scene|think)\s+([A-Za-z-]+)\s*\|\s*(.*)$/);
+      if (m) { if (i < lines.length - 1 || at !== -1) thoughts.push({ i, shape: m[1], text: m[2].trim() }); return; }
+      if (/^\s*@/.test(l)) return; // markers, or one still streaming
+      if (at === -1 || i > at) ans.push(l);
+    });
+    let body = ans.join("\n").replace(/^\s+/, ""), fu = [];
+    const k = body.indexOf(MARK);
+    if (k !== -1) { fu = body.slice(k + MARK.length).split("|").map(s => s.trim()).filter(Boolean).slice(0, 3); body = body.slice(0, k).trimEnd(); }
+    else { const nl = body.lastIndexOf("\n"), tail = body.slice(nl + 1).trim(); if (tail && MARK.startsWith(tail)) body = body.slice(0, Math.max(0, nl)).trimEnd(); }
+    return { thoughts, body, fu, answering: at !== -1 };
+  }
+
+  /* ===== DOM ===== */
+  const $ = id => document.getElementById(id);
+  const form = $("prompt"), input = $("input"), runEl = $("runBody"), statusEl = $("status");
+  const SEND = '<path d="M12 19V5M5 12l7-7 7 7"/>';
+  const STOP = '<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/>';
+  let busy = false, ctl = null, sample = null, mcp = null, perms = null, toolsOk = false, unavailable = false, current = null, turnEl = null;
+  const history = []; // [{q, a}] — finished exchanges, sent back as hidden context so follow-ups make sense
+
+  function sync() {
+    const send = $("send");
+    send.disabled = !busy && (!input.value.trim() || unavailable);
+    $("sendIcon").innerHTML = busy ? STOP : SEND;
+    send.setAttribute("aria-label", busy ? "Stop" : "Send");
+  }
+  function grow() { input.style.height = "auto"; input.style.height = input.scrollHeight + "px"; }
+  input.addEventListener("input", () => { grow(); sync(); });
+  input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
+  form.addEventListener("submit", e => {
+    e.preventDefault();
+    if (busy) { ctl?.abort(); return; }
+    const q = input.value.trim();
+    if (q && !unavailable) go(q);
+  });
+  function ask(q) { if (busy || unavailable) return; input.value = q; grow(); go(q); }
+
+  /* ===== ThinkingState ===== */
+  const mindEl = document.getElementById("mind"), runRoot = document.getElementById("run");
+  function thinking() {
+    const root = h("div", "think");
+    const head = h("button", "th-head"); head.type = "button";
+    const lead = h("span", "th-lead"); lead.appendChild(grid("Drive"));
+    const status = h("span"); status.setAttribute("role", "status"); status.style.display = "contents";
+    const label = h("span", "th-label shimmer", "Thinking");
+    const clock = h("span", "th-time", "0.0s");
+    status.append(label, clock);
+    head.append(lead, status);
+    const coll = h("div", "collapse"); const inner = h("div"); const trace = h("div", "trace");
+    inner.appendChild(trace); coll.appendChild(inner);
+    const side = h("div", "think-side"); side.append(head, coll); root.append(mindEl, side);
+    let manual = null, auto = true, settled = false, chev = null;
+    const t0 = performance.now();
+    const tick = setInterval(() => { clock.textContent = fmtElapsed((performance.now() - t0) / 1000); }, 100);
+    const apply = () => {
+      const open = manual ?? auto;
+      coll.classList.toggle("open", open); head.setAttribute("aria-expanded", open);
+      if (chev) chev.style.transform = open ? "rotate(180deg)" : "rotate(0)";
+    };
+    head.onclick = () => { manual = !(manual ?? auto); apply(); };
+    apply();
+    return {
+      root,
+      step(text) {
+        trace.querySelector(".p.shimmer")?.classList.remove("shimmer"); // only the step in progress shimmers
+        const row = h("div", "th-row"); const p = h("span", "p" + (settled ? "" : " shimmer")); p.textContent = text;
+        row.appendChild(p); trace.appendChild(row);
+        return { set(t) { p.textContent = t; } };
+      },
+      settle() {
+        if (settled) return; settled = true; clearInterval(tick);
+        trace.querySelector(".p.shimmer")?.classList.remove("shimmer");
+        const s = Math.max(1, Math.round((performance.now() - t0) / 1000));
+        lead.innerHTML = svg(CHEV_DOWN, 14, 'fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"');
+        chev = lead.firstChild; chev.classList.add("chev");
+        label.className = "th-label done"; label.textContent = "Thought";
+        clock.textContent = s + "s";
+        apply();
+        setTimeout(() => { auto = false; apply(); }, 900);
+      },
+    };
+  }
+
+  /* ===== StreamingText ===== */
+  function streamingText(onFinish) {
+    const root = h("div"), body = h("div", "answer"); root.appendChild(body);
+    const born = []; let target = "", shown = 0, live = true, done = false, primed = false;
+    const words = s => [...s.matchAll(/\S+/g)];
+    function render(withCaret) {
+      const all = words(target);
+      const cut = shown >= all.length ? target : (shown ? target.slice(0, all[shown - 1].index + all[shown - 1][0].length) : "");
+      body.innerHTML = md(cut);
+      const now = performance.now(); let k = 0;
+      const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT), nodes = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode);
+      for (const node of nodes) {
+        const parts = node.nodeValue.split(/(\s+)/), frag = document.createDocumentFragment(); let changed = false;
+        for (const part of parts) {
+          if (!part || /^\s+$/.test(part)) { frag.append(part); continue; }
+          if (born[k] === undefined) born[k] = now;
+          const age = now - born[k];
+          if (age < 400) { const s = h("span", "w"); s.textContent = part; s.style.animationDelay = -age + "ms"; frag.append(s); changed = true; } else frag.append(part);
+          k++;
+        }
+        if (changed) node.replaceWith(frag);
+      }
+      if (withCaret) { const last = body.lastElementChild; (last ? (last.matches("ul,ol") ? last.lastElementChild : last) : body).appendChild(h("span", "caret")); }
+    }
+    const timer = setInterval(() => {
+      const total = words(target).length;
+      if (shown < total) { shown = Math.min(total, shown + Math.max(1, Math.ceil((total - shown) / 5))); render(true); primed = true; }
+      else if (!live && !done) { done = true; clearInterval(timer); render(false); onFinish(); }
+      else if (!primed && target) { render(true); primed = true; }
+    }, 45);
+    return { root, set(t) { target = t; }, end() { live = false; }, stop() { clearInterval(timer); } };
+  }
+
+  const ACTIONS = {
+    copy: `<g ${STROKE} stroke-width="1.8"><rect x="9" y="9" width="12" height="12" rx="2.5"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></g>`,
+    retry: `<path ${STROKE} stroke-width="1.8" d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/>`,
+    up: `<path ${STROKE} stroke-width="1.8" d="M7 10v12M15 5.88L14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88z"/>`,
+    down: `<path ${STROKE} stroke-width="1.8" d="M17 14V2M9 18.12L10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88z"/>`,
+  };
+  function finishUI(q, bodyText, fus) {
+    const row = h("div", "actions"), msg = h("span", "act-note");
+    const mk = (key, label, fn) => { const b = h("button", "act", svg(ACTIONS[key], 15)); b.type = "button"; b.setAttribute("aria-label", label); b.title = label; b.onclick = () => fn(b); row.appendChild(b); return b; };
+    mk("copy", "Copy", async () => { try { await navigator.clipboard.writeText(bodyText); msg.textContent = "Copied"; } catch { msg.textContent = "Copy isn't available here"; } row.appendChild(msg); setTimeout(() => msg.remove(), 1600); });
+    mk("retry", "Retry", () => ask(q));
+    const up = mk("up", "Good response", b => { b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); down.setAttribute("aria-pressed", "false"); });
+    const down = mk("down", "Bad response", b => { b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); up.setAttribute("aria-pressed", "false"); });
+    turnEl.appendChild(row);
+    if (fus.length) {
+      const wrap = h("div", "fu"); wrap.appendChild(h("p", "fu-title", "Follow-ups"));
+      const list = h("div", "fu-list");
+      fus.forEach((t, i) => {
+        const b = h("button", "fu-item", svg('<path d="M9 10l-5 5 5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/>', 11, 'fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"'));
+        b.type = "button"; b.style.animationDelay = i * 90 + "ms"; b.appendChild(document.createTextNode(t)); b.onclick = () => ask(t);
+        list.appendChild(b);
+      });
+      wrap.appendChild(list); turnEl.appendChild(wrap);
+    }
+  }
+  const note = msg => { const p = h("p", "note"); p.textContent = msg; turnEl.appendChild(p); };
+
+  /* ===== web search setup (Parallel Search connector) ===== */
+  // web: "off" (no mcp / connector not added), "unknown" (declared, not yet allowed), "ready", "denied"
+  let web = "off", webSchemas = null;
+  const webHint = msg => { statusEl.textContent = msg; statusEl.hidden = !msg; };
+  async function loadWebSchemas() {
+    const out = {};
+    for (const name of Object.keys(WEB_TOOLS)) {
+      try { const d = await mcp.describeTool(WEB, name); out[name] = fitSchema(d.inputSchema) || WEB_TOOLS[name].fallback; }
+      catch (e) { if (e?.code === "bad_request") out[name] = WEB_TOOLS[name].fallback; else throw e; }
+    }
+    return out;
+  }
+  // Called on submit (a user gesture), so the one-time connector consent can be asked here.
+  async function ensureWeb() {
+    if (web === "off" || web === "denied") return null;
+    if (webSchemas) return webSchemas;
+    try { webSchemas = await loadWebSchemas(); }
+    catch (e) {
+      if (e?.code === "not_in_manifest" && perms) {
+        const st = await perms.request(["mcp:" + WEB]).catch(() => null);
+        const s = st && (st["mcp:" + WEB] ?? st);
+        if (s === "denied") { web = "denied"; webHint("Web search is off for this page. Turn on Parallel Search in the page's permissions to use it."); return null; }
+        try { webSchemas = await loadWebSchemas(); } catch { webSchemas = { web_search: WEB_TOOLS.web_search.fallback, web_fetch: WEB_TOOLS.web_fetch.fallback }; }
+      } else if (e?.code === "server_not_connected") { web = "off"; webHint("Web search is off. Connect Parallel Search in claude.ai Settings → Connectors to turn it on."); return null; }
+      else if (e?.code === "needs_reauth") { webHint("Reconnect Parallel Search in claude.ai Settings → Connectors to use web search."); return null; }
+      else webSchemas = { web_search: WEB_TOOLS.web_search.fallback, web_fetch: WEB_TOOLS.web_fetch.fallback }; // the first call will ask
+    }
+    if (webSchemas) { web = "ready"; webHint(""); }
+    return webSchemas;
+  }
+  const webPayload = res => {
+    const p = res?.payload ?? res?.content?.map(c => c.text || "").join("\n");
+    return clip(typeof p === "string" ? p : JSON.stringify(p), 14000);
+  };
+  const webErr = e => ({
+    server_not_connected: "Web search isn't connected for this user.",
+    needs_reauth: "The web search connector needs to be reconnected.",
+    not_in_manifest: "Web search isn't allowed for this page.",
+    approval_required: "The user didn't approve web search.",
+    blocked_by_policy: "Web search is blocked by the user's organization.",
+    server_unavailable: "Web search is temporarily unavailable.",
+  })[e?.code] || (e?.message ? "Web tool failed: " + clip(e.message, 300) : "Web tool failed.");
+
+  /* ===== one exchange ===== */
+  async function go(q) {
+    current?.stop(); stopTurns();
+    // One exchange on screen at a time: a new question replaces the last one.
+    turnEl = h("div", "turn"); runEl.replaceChildren(turnEl);
+    busy = true; sync();
+    const think = thinking(); turnEl.appendChild(think.root);
+    // Dots float loose until the model names its first scene, then pull together into it.
+    mindEl.hidden = false; let first = true;
+    mind.scatter("sphere"); mind.live(true);
+    let full = "", answering = false, ended = false, stream = null;
+
+    // Each scene holds the stage long enough to be seen; when the answer starts, the rest play out faster.
+    const queue = []; let pumping = null;
+    const pump = () => {
+      if (pumping) return;
+      if (!queue.length) { if (answering) reveal(); return; }
+      const shape = queue.shift();
+      if (first) { first = false; mind.conjure(shape); } else mind.show(shape);
+      if (shape === "cube") startTurns("R U R' U' F2 L D'"); else stopTurns();
+      pumping = setTimeout(() => { pumping = null; pump(); }, answering ? 550 : 1100);
+    };
+    const showSoon = shape => { queue.push(normShape(shape)); pump(); };
+
+    const finish = () => {
+      const { body, fu } = parseStream(full);
+      if (body) { finishUI(q, body, fu); history.push({ q, a: body }); }
+      busy = false; ctl = null; sync();
+    };
+    // Tuck the visual and trace away so the streamed answer takes the stage.
+    const reveal = () => {
+      if (stream) return;
+      think.settle(); stopTurns(); mindEl.hidden = true; mind.live(false);
+      stream = streamingText(finish); turnEl.appendChild(stream.root);
+      stream.set(parseStream(full).body);
+      if (ended) stream.end();
+    };
+    const startAnswer = () => { if (answering) return; answering = true; pump(); };
+    current = { stop() { stream?.stop(); clearTimeout(pumping); pumping = null; queue.length = 0; stopTurns(); } };
+
+    const rows = new Map();
+    const onText = text => {
+      full = text;
+      const p = parseStream(text);
+      for (const t of p.thoughts) {
+        const r = rows.get(t.i);
+        if (!r) { rows.set(t.i, { text: t.text, row: think.step(t.text || "…") }); showSoon(t.shape); }
+        else if (r.text !== t.text) { r.text = t.text; r.row.set(t.text); }
+      }
+      if (p.answering) startAnswer();
+      stream?.set(p.body);
+    };
+
+    ctl = new AbortController();
+    const signal = ctl.signal;
+    const traced = (shape, label, fn) => async (args, cx) => { think.step(label(args || {})); showSoon(shape); return fn(args || {}, cx); };
+    let tools;
+    if (toolsOk) {
+      tools = LOCAL_TOOLS.filter(d => !d.needs || d.needs()).map(d => ({
+        name: d.name, description: d.description, ...(d.inputSchema ? { inputSchema: d.inputSchema } : {}),
+        execute: traced(d.shape, d.step, a => d.run(a)),
+      }));
+      const ws = await ensureWeb();
+      if (signal.aborted) { current.stop(); think.settle(); mindEl.hidden = true; mind.live(false); busy = false; ctl = null; sync(); note("Stopped."); return; }
+      if (ws) for (const [name, def] of Object.entries(WEB_TOOLS)) tools.push({
+        name, description: def.description, inputSchema: ws[name],
+        execute: traced(def.shape, def.step, async (a, cx) => {
+          try { return webPayload(await mcp.callTool(WEB, name, a, { signal: cx?.signal })); }
+          catch (e) { throw new Error(webErr(e)); }
+        }),
+      });
+    }
+
+    // Conversation: standing rules, the last few exchanges, then this message.
+    const turns = [{ role: "user", content: RULES(tools ? tools.map(t => t.name) : [], !!tools?.some(t => t.name === "web_search")) }];
+    for (const x of history.slice(-6)) turns.push({ role: "user", content: x.q }, { role: "assistant", content: clip(x.a, 6000) });
+    turns.push({ role: "user", content: q });
+
+    try {
+      const res = await sample(turns, { model: "claude-sonnet-5-5", effort: "low", cache: false, signal, tools, onText: ({ text }) => onText(text) });
+      onText(res.text);
+      ended = true; startAnswer(); stream?.end();
+      if (res.truncated) note("The answer was cut short. Ask for less at a time.");
+    } catch (e) {
+      if (e.text && e.code !== "refused") { onText(e.text); ended = true; startAnswer(); stream?.end(); }
+      else { current.stop(); think.settle(); mindEl.hidden = true; mind.live(false); busy = false; ctl = null; sync(); }
+      note(e.code === "cancelled" ? "Stopped." : copyFor(e.code));
+      if (["not_granted", "sampling_disabled", "not_declared", "capability_disabled", "capability_removed"].includes(e.code)) setUnavailable(copyFor(e.code));
+    }
+  }
+
+  function copyFor(code) {
+    return ({
+      not_granted: "Claude access wasn't allowed for this page. Reload and choose Allow.",
+      sampling_disabled: "Claude isn't available on this account.",
+      rate_limited: "You've hit a usage limit. Wait a moment, then try again.",
+      session_expired: "Your session expired. Sign in again, then retry.",
+      refused: "Claude declined that one. Try rephrasing.",
+      empty_completion: "No answer came back. Try a simpler question.",
+      prompt_too_large: "This chat got too long. Start a new chat.",
+    })[code] || "Something went wrong reaching Claude. Send again to retry.";
+  }
+  function setUnavailable(msg) { unavailable = true; statusEl.textContent = msg; statusEl.hidden = false; sync(); }
+
+  /* ===== cube: layer turns while the cube is on stage ===== */
+  const MOVES = { R: [0, 1, -1], L: [0, -1, 1], U: [1, 1, -1], D: [1, -1, 1], F: [2, 1, -1], B: [2, -1, 1] };
+  let turnRaf = 0, turnOn = false;
+  function startTurns(seq) {
+    if (turnOn) return;
+    turnOn = true;
+    const list = seq.split(/\s+/).map(m => { const [ax, lay, dir] = MOVES[m[0]]; const amt = m.includes("2") ? 2 : 1; return { ax, lay, ang: dir * (m.includes("'") ? -1 : 1) * amt * Math.PI / 2, dur: amt === 2 ? 1500 : 1050 }; });
+    let i = 0, t0 = performance.now();
+    const ease = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+    const step = now => {
+      if (!turnOn) return;
+      const m = list[i], k = (now - t0) / m.dur;
+      if (k >= 1) { mind.turn(0, 9, 0); if (now - t0 > m.dur + 340) { i = (i + 1) % list.length; t0 = now; } }
+      else mind.turn(m.ax, m.lay, m.ang * ease(Math.max(0, k)));
+      turnRaf = requestAnimationFrame(step);
+    };
+    if (!reduced) turnRaf = requestAnimationFrame(step);
+  }
+  function stopTurns() { turnOn = false; cancelAnimationFrame(turnRaf); mind.turn(0, 9, 0); }
+
+  /* ===== boot ===== */
+  sync(); input.focus();
+  (async () => {
+    const use = n => window.claude ? window.claude.use(n).catch(() => null) : Promise.resolve(null);
+    [sample, mcp, perms] = await Promise.all([use("sample"), use("mcp"), use("permissions")]);
+    if (!sample) { setUnavailable("Open this page in Claude to run the agent."); return; }
+    const lim = await sample.limits().catch(() => null);
+    toolsOk = !!lim?.tools;
+    if (!toolsOk || !mcp) { if (toolsOk) webHint("Web search needs the Claude app's connector access, which isn't available in this view."); return; }
+    // Listing never asks the viewer: it only tells us whether the connector exists for them.
+    const list = await mcp.listTools(WEB).catch(() => null);
+    const srv = list?.servers?.find(x => x.server === WEB);
+    if (!srv) webHint("Web search is off. Connect Parallel Search in claude.ai Settings → Connectors to turn it on.");
+    else if (srv.authStatus === "needs_reauth") webHint("Reconnect Parallel Search in claude.ai Settings → Connectors to use web search.");
+    else web = "unknown";
+  })();
+})();
+</script>
+
+</body></html>
