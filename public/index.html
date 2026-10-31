@@ -648,11 +648,9 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
   };
   const MARK = "FOLLOWUPS:";
 
-  /* ===== thread: one per browser tab session, kept so a reload picks the conversation back up ===== */
+  /* ===== thread: a fresh one on every page load, so a refresh or a new visit always starts clean ===== */
   const newId = () => crypto.randomUUID();
-  let threadId = (() => { try { return localStorage.getItem("vac:thread") || newId(); } catch { return newId(); } })();
-  const saveThread = () => { try { localStorage.setItem("vac:thread", threadId); } catch {} };
-  saveThread();
+  let threadId = newId();
 
   function parseStream(text) {
     const lines = text.replace(/([^\n])(@answer|@scene\s)/g, "$1\n$2").split("\n"), thoughts = [], ans = [];
@@ -786,7 +784,7 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
     const mk = (key, label, fn) => { const b = h("button", "act", svg(ACTIONS[key], 15)); b.type = "button"; b.setAttribute("aria-label", label); b.title = label; b.onclick = () => fn(b); row.appendChild(b); return b; };
     mk("copy", "Copy", async () => { try { await navigator.clipboard.writeText(bodyText); msg.textContent = "Copied"; } catch { msg.textContent = "Copy isn't available here"; } row.appendChild(msg); setTimeout(() => msg.remove(), 1600); });
     mk("retry", "Retry", () => ask(q));
-    mk("fresh", "New chat", () => { current?.stop(); threadId = newId(); saveThread(); runEl.replaceChildren(); input.value = ""; grow(); sync(); input.focus(); });
+    mk("fresh", "New chat", () => { current?.stop(); threadId = newId(); runEl.replaceChildren(); input.value = ""; grow(); sync(); input.focus(); });
     const up = mk("up", "Good response", b => { b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); down.setAttribute("aria-pressed", "false"); });
     const down = mk("down", "Bad response", b => { b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); up.setAttribute("aria-pressed", "false"); });
     turnEl.appendChild(row);
@@ -927,15 +925,6 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
 
   /* ===== boot ===== */
   sync(); input.focus();
-  (async () => {
-    const r = await fetch(`/api/thread?thread=${threadId}`).catch(() => null);
-    const last = r?.ok ? (await r.json()).exchanges?.at(-1) : null;
-    if (!last || busy) return;
-    turnEl = h("div", "turn"); runEl.replaceChildren(turnEl);
-    const p = h("p", "note"); p.textContent = last.q; turnEl.appendChild(p);
-    const a = h("div", "answer", md(last.a)); turnEl.appendChild(a);
-    finishUI(last.q, last.a, []);
-  })();
 })();
 </script>
 
