@@ -241,7 +241,17 @@ button.th-row:hover { background: var(--hover); }
     answer:"bulb", insight:"bulb", solution:"bulb", decide:"star", decision:"star", choice:"star", pick:"star", best:"star", result:"star", goal:"star", logic:"jigsaw", problem:"jigsaw", tricky:"jigsaw", piece:"jigsaw", build:"robotarm", machine:"robotarm", engineering:"robotarm",
     sleep:"clock", music:"music", sound:"headphones", podcast:"headphones", car:"plane", transport:"plane", vacation:"plane", hotel:"house", rent:"house", move:"house", wedding:"ring", marriage:"ring", relationship:"heart",
   });
+  Object.assign(ALIAS, { tip:"coin", tips:"coin", dollars:"coin", weather:"tree", explain:"bulb", how:"bulb", why:"bulb", news:"globe", happened:"globe", week:"clock", today:"clock" });
   const FALLBACK = ["sphere", "cube", "star", "bulb", "globe", "book", "search", "jigsaw"];
+  // A first guess from the question itself, so a shape starts forming the moment you send. Only real matches; null otherwise.
+  const guessShape = q => {
+    for (const raw of String(q).toLowerCase().split(/[^a-z]+/)) {
+      if (!raw) continue;
+      const sing = raw.replace(/(ies)$/, "y").replace(/(es|s)$/, "");
+      for (const w of [raw, sing]) { if (SHAPES.includes(w)) return w; if (ALIAS[w]) return ALIAS[w]; }
+    }
+    return null;
+  };
   const normShape = s => {
     s = String(s || "").toLowerCase().trim().replace(/[^a-z0-9 -]/g, "");
     if (!s) return "sphere";
@@ -259,6 +269,7 @@ button.th-row:hover { background: var(--hover); }
 precision highp float;
 uniform vec2 uRes; uniform float uTime; uniform int uA; uniform int uB; uniform float uT;
 uniform float uEnergy; uniform float uScale; uniform vec3 uBack; uniform vec3 uFront; uniform float uForm; uniform float uST;
+uniform float uPix; uniform float uShimmer;
 uniform int uAxis; uniform float uLayer; uniform float uAngle;
 out vec4 outColor;
 float dot2(vec2 v){return dot(v,v);}
@@ -473,10 +484,12 @@ vec3 calcN(vec3 p){
   return normalize(k.xyy*map(p+k.xyy*e)+k.yyx*map(p+k.yyx*e)+k.yxy*map(p+k.yxy*e)+k.xxx*map(p+k.xxx*e));
 }
 void main(){
-  vec2 uv=(gl_FragCoord.xy-.5*uRes)/(uRes.y*.5);
+  // Pixelation: while a shape resolves, every uPix x uPix block samples its centre, so it sharpens from coarse to fine.
+  vec2 fc=(floor(gl_FragCoord.xy/uPix)+.5)*uPix;
+  vec2 uv=(fc-.5*uRes)/(uRes.y*.5);
   // Conjure: every cell first samples the shape from a random, swirled, enlarged position; as uForm -> 1 the dots pull together.
   float kf=1.-uForm; kf=kf*kf;
-  vec2 cellc=floor(gl_FragCoord.xy);
+  vec2 cellc=floor(fc);
   // Soft, wobbling round edge for the loose dots so the cloud never shows the tile's square.
   vec2 suv=uv; float sang=atan(suv.y,suv.x);
   float sedge=.8+.1*sin(sang*3.+uTime*.6)+.07*sin(sang*5.-uTime*.9);
@@ -520,15 +533,23 @@ void main(){
     lum=sh*.2;
   }
   if(!hit){
-    vec2 cell=floor(gl_FragCoord.xy);
+    vec2 cell=floor(fc);
     lum+=step(.992-.012*uEnergy,hash(cell+floor(uTime*10.)))*uEnergy*.6*smoothstep(1.4,.4,length(uv));
   }
   lum*=mix(1.,fall,kf);
   lum=max(lum,step(.972,hash(cellc+3.1))*kf*.95*step(hash(cellc+7.7),fall));   // loose specks, thinning out toward the edge
-  // Paper's default dithering: type "4x4", size 2 (one fragment per 2 css px), grid centred on the canvas like Paper's pxSizeUV.
-  float dithering=getBayerValue(gl_FragCoord.xy-.5*uRes,4)-.5;
-  float res=step(.5,clamp(lum,0.,1.)+dithering);
-  outColor=res>.5?vec4(uFront,1.):vec4(0.);
+  // Ordered 4x4 Bayer dithering with 17 tone levels (after Niccolo Fanton's real-time dithering shader, Codrops 2025):
+  // tones past 1/17 and 16/17 skip the matrix so flat areas stay clean, and while the agent works the matrix steps
+  // one cell at a time for a quiet shimmer. One fragment = 2 css px, grid centred on the canvas.
+  float tone=clamp(lum,0.,1.), on;
+  if(tone<1./17.) on=0.;
+  else if(tone>16./17.) on=1.;
+  else {
+    float f=floor(uTime*9.)*uShimmer;
+    vec2 q=mod(floor(gl_FragCoord.xy-.5*uRes)+vec2(f,f*3.),4.);
+    on=step(float(bayer4x4[int(q.y)*4+int(q.x)]+1)/17.,tone);
+  }
+  outColor=on>.5?vec4(uFront,1.):vec4(0.);
 }`;
   const VERT = `#version 300 es
 in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
@@ -538,42 +559,56 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
     const mind = document.getElementById("mind");
     const CELL = 2; // css px per dither cell
     const gl = canvas.getContext("webgl2", { antialias: false, alpha: true, premultipliedAlpha: true, preserveDrawingBuffer: false, powerPreference: "low-power" });
-    let A = 0, B = 0, t0 = -1e9, formT0 = -1e9, form = 1, FORM_MS = 1400, energy = 0.25, energyTarget = 0.25, raf = 0, visible = true, shown = "sphere";
+    // form: 0 = loose dots, 1 = solid shape. It grows on its own (about 2 s) and every streamed token speeds it up,
+    // so a fast stream pulls the shape together almost at once. hold keeps the dots loose (scatter) until told.
+    let A = 0, B = 0, t0 = -1e9, form = 1, hold = false, boost = 0, energy = 0.25, energyTarget = 0.25, raf = 0, last = 0, visible = true, shown = "sphere", ok = false;
+    const at = name => { name = normShape(name); shown = name; return SHAPES.indexOf(name); };
     const api = {
       show(name) {
-        name = normShape(name);
-        if (name !== shown) {
+        if (normShape(name) !== shown) {
           const now = performance.now(), t = Math.min(1, (now - t0) / 950);
-          A = t < .5 ? A : B; B = SHAPES.indexOf(name); t0 = now; shown = name;
+          A = t < .5 ? A : B; B = at(name); t0 = now;
         }
-        kick();
+        hold = false; kick();
       },
-      scatter(name) { // dots float loose, held apart until conjure()
-        name = normShape(name); A = B = SHAPES.indexOf(name); t0 = -1e9; shown = name;
-        formT0 = Infinity; form = 0; kick();
-      },
-      conjure(name) {
-        name = normShape(name); A = B = SHAPES.indexOf(name); t0 = -1e9; shown = name;
-        formT0 = performance.now(); form = 0; kick();
+      scatter(name) { A = B = at(name); t0 = -1e9; form = 0; hold = true; kick(); },
+      conjure(name) { A = B = at(name); t0 = -1e9; form = 0; hold = false; kick(); },
+      feed(n) { // n new characters arrived: converge faster and spark a little
+        hold = false; boost = Math.min(5, boost + n * .03); energy = Math.min(1.5, energy + .03 * Math.min(n, 12)); kick();
       },
       turn() {},
       live(on) { energyTarget = on ? 1 : .25; kick(); },
     };
-    if (!gl) { mind.appendChild(h("div", "mind-fallback", "WebGL2 isn't available in this browser.")); return api; }
-    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s)); return s; };
-    const prog = gl.createProgram();
-    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VERT)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FRAG));
-    gl.linkProgram(prog); gl.useProgram(prog);
-    const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
-    const loc = gl.getAttribLocation(prog, "aPos"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    const U = n => gl.getUniformLocation(prog, n);
-    const u = { res: U("uRes"), time: U("uTime"), a: U("uA"), b: U("uB"), t: U("uT"), energy: U("uEnergy"), scale: U("uScale"), back: U("uBack"), front: U("uFront"), axis: U("uAxis"), layer: U("uLayer"), angle: U("uAngle"), form: U("uForm"), st: U("uST") };
-    gl.uniform1f(u.layer, 9); gl.uniform1f(u.angle, 0); gl.uniform1f(u.form, 1);
-    api.turn = (axis, layer, angle) => { gl.uniform1i(u.axis, axis); gl.uniform1f(u.layer, layer); gl.uniform1f(u.angle, angle); kick(); };
+    const fallback = msg => { if (!mind.querySelector(".mind-fallback")) mind.appendChild(h("div", "mind-fallback", msg)); };
+    if (!gl) { fallback("WebGL2 isn't available in this browser."); return api; }
+
+    let u = {};
+    // Builds the program. Runs at load (so the first question doesn't stall on shader compile) and again if the GPU context is restored.
+    function build() {
+      const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+      const vs = sh(gl.VERTEX_SHADER, VERT), fs = sh(gl.FRAGMENT_SHADER, FRAG), prog = gl.createProgram();
+      gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        console.error(gl.getShaderInfoLog(fs) || gl.getProgramInfoLog(prog));
+        ok = false; fallback("The animation couldn't start on this device."); return;
+      }
+      gl.useProgram(prog);
+      gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(prog, "aPos"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+      const U = n => gl.getUniformLocation(prog, n);
+      u = { res: U("uRes"), time: U("uTime"), a: U("uA"), b: U("uB"), t: U("uT"), energy: U("uEnergy"), scale: U("uScale"), back: U("uBack"), front: U("uFront"), axis: U("uAxis"), layer: U("uLayer"), angle: U("uAngle"), form: U("uForm"), st: U("uST"), pix: U("uPix"), shimmer: U("uShimmer") };
+      gl.uniform1f(u.layer, 9); gl.uniform1f(u.angle, 0); gl.uniform1f(u.form, 1); gl.uniform1f(u.pix, 1); gl.uniform1f(u.shimmer, 0);
+      gl.clearColor(0, 0, 0, 0);
+      ok = true;
+    }
+    build();
+    canvas.addEventListener("webglcontextlost", e => { e.preventDefault(); ok = false; cancelAnimationFrame(raf); raf = 0; });
+    canvas.addEventListener("webglcontextrestored", () => { build(); if (ok) { setColors(); resize(); } });
+    api.turn = (axis, layer, angle) => { if (!ok) return; gl.uniform1i(u.axis, axis); gl.uniform1f(u.layer, layer); gl.uniform1f(u.angle, angle); kick(); };
     const hex = s => { s = s.trim().replace("#", ""); return [0, 2, 4].map(i => parseInt(s.slice(i, i + 2), 16) / 255); };
-    gl.clearColor(0, 0, 0, 0);
     function setColors() {
+      if (!ok) return;
       const cs = getComputedStyle(document.documentElement);
       gl.uniform3fv(u.back, hex(cs.getPropertyValue("--tile-bg") || "#f7f7f7"));
       gl.uniform3fv(u.front, hex(cs.getPropertyValue("--tile-fg") || "#2c2d31"));
@@ -583,6 +618,7 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
     matchMedia("(prefers-color-scheme: dark)").addEventListener("change", setColors);
     new MutationObserver(setColors).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     function resize() {
+      if (!ok) return;
       const r = mind.getBoundingClientRect();
       const w = Math.max(1, Math.round(r.width / CELL)), hgt = Math.max(1, Math.round(r.height / CELL));
       if (canvas.width !== w || canvas.height !== hgt) { canvas.width = w; canvas.height = hgt; gl.viewport(0, 0, w, hgt); }
@@ -595,21 +631,29 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
     const start = performance.now();
     function frame(now) {
       raf = 0;
+      if (!ok) return;
+      const dt = Math.min(64, last ? now - last : 16); last = now;
       const k = Math.min(1, (now - t0) / 950), t = ease(k);
+      if (!hold && form < 1) form = Math.min(1, form + dt / 1000 * (.45 + boost));
+      boost *= Math.pow(.92, dt / 16.7);
       energy += (energyTarget - energy) * .06;
+      const fe = 1 - Math.pow(1 - form, 3);
       gl.uniform1f(u.time, reduced ? 0 : (now - start) / 1000 * .7);
       gl.uniform1i(u.a, A); gl.uniform1i(u.b, B); gl.uniform1f(u.t, t);
-      const fk = Math.max(0, Math.min(1, (now - formT0) / FORM_MS)); form = 1 - Math.pow(1 - fk, 3);
-      gl.uniform1f(u.form, form);
+      gl.uniform1f(u.form, fe);
+      gl.uniform1f(u.pix, fe < .3 ? 4 : fe < .6 ? 3 : fe < .85 ? 2 : 1);  // coarse to fine as the shape comes together
+      gl.uniform1f(u.shimmer, !reduced && energyTarget > .5 ? 1 : 0);
       gl.uniform1f(u.st, Math.max(0, Math.min(60, (now - t0) / 1000)));
-      gl.uniform1f(u.energy, energy);
+      gl.uniform1f(u.energy, Math.min(1, energy));
       gl.uniform1f(u.scale, 1 + .06 * Math.sin(Math.PI * t));
       gl.drawArrays(gl.TRIANGLES, 0, 3);
-      const settling = k < 1 || form < 1 || Math.abs(energyTarget - energy) > .01;
+      const settling = k < 1 || form < 1 || boost > .01 || Math.abs(energyTarget - energy) > .01;
       if (visible && !document.hidden && (!reduced || settling)) raf = requestAnimationFrame(frame);
+      else last = 0;
     }
-    function kick() { if (!raf && visible && !document.hidden) raf = requestAnimationFrame(frame); }
+    function kick() { if (!raf && ok && visible && !document.hidden) raf = requestAnimationFrame(frame); }
     resize();
+    if (ok) gl.drawArrays(gl.TRIANGLES, 0, 3); // warm-up draw: makes the driver finish compiling now, not on the first question
     return api;
   }
   const mind = makeMind();
@@ -668,7 +712,7 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
     const at = lines.findIndex(l => /^\s*@answer\s*$/.test(l));
     lines.forEach((l, i) => {
       const m = l.match(/^\s*@(?:scene|think)\s+([A-Za-z-]+)\s*\|\s*(.*)$/);
-      if (m) { if (i < lines.length - 1 || at !== -1) thoughts.push({ i, shape: m[1], text: m[2].trim() }); return; }
+      if (m) { thoughts.push({ i, shape: m[1], text: m[2].trim() }); return; } // the shape word is complete once "|" arrives
       if (/^\s*@/.test(l)) return; // markers, or one still streaming
       if (at === -1 || i > at) ans.push(l);
     });
@@ -840,9 +884,9 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
     turnEl = h("div", "turn"); runEl.replaceChildren(turnEl);
     busy = true; sync();
     const think = thinking(); turnEl.appendChild(think.root);
-    // Dots float loose until the model names its first scene, then pull together into it.
-    mindEl.hidden = false; let first = true;
-    mind.scatter("sphere"); mind.live(true);
+    // Form straight away: a shape guessed from the question (or an orb), then morph to whatever the model names.
+    mindEl.hidden = false; let first = false;
+    mind.conjure(guessShape(q) || "sphere"); mind.live(true);
     let full = "", answering = false, ended = false, stream = null;
 
     // Each scene holds the stage long enough to be seen; when the answer starts, the rest play out faster.
@@ -913,8 +957,9 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
           const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
           if (!line.trim()) continue;
           const e = JSON.parse(line);
-          if (e.t === "text") { text += e.d; onText(text); }
-          else if (e.t === "tool") { const ui = TOOL_UI[e.name]; if (ui) { think.step(ui.step(e.input || {})); showSoon(ui.shape); } }
+          if (e.t === "text") { text += e.d; mind.feed(e.d.length); onText(text); }
+          else if (e.t === "tool_start") { const ui = TOOL_UI[e.name]; if (ui) showSoon(ui.shape); mind.feed(8); }
+          else if (e.t === "tool") { const ui = TOOL_UI[e.name]; if (ui) think.step(ui.step(e.input || {})); }
           else if (e.t === "done") { done = true; ended = true; startAnswer(); stream?.end(); if (e.truncated) note("The answer was cut short. Ask for less at a time."); }
           else if (e.t === "error") return fail(e.code);
         }

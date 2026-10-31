@@ -128,6 +128,7 @@ export class Thread extends DurableObject<Env> {
           // Text after a tool call starts a new block; break the line so "@answer" or "@scene" doesn't glue onto the last status.
           if (part.type === "text-start" && full && !full.endsWith("\n")) { full += "\n"; await send({ t: "text", d: "\n" }); }
           else if (part.type === "text-delta") { full += part.text; await send({ t: "text", d: part.text }); }
+          else if (part.type === "tool-input-start") await send({ t: "tool_start", name: part.toolName }); // shape changes before the arguments finish
           else if (part.type === "tool-call") await send({ t: "tool", name: part.toolName, input: part.input });
           else if (part.type === "tool-error") await send({ t: "tool_error", name: part.toolName });
           else if (part.type === "finish") finish = part.finishReason;
