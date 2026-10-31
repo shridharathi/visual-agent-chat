@@ -1,5 +1,7 @@
 # Visual Agent Chat
 
+**Live:** https://visual-agent-chat.shridharathinarayanan.workers.dev
+
 ![Visual Agent Chat: a prompt with a dithered gift shape below it](docs/screenshot.png)
 
 A single-page agent chat. While the model works, a WebGL2 dithered "mind" tile morphs between shapes that match each step it narrates (searching the web, reading a page, calculating), then the answer streams in.
