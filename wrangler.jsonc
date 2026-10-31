@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "visual-agent-chat",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // index.html and friends are served straight from the edge; only /api/* reaches the Worker.
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
+
+  // Claude Haiku 5.5 and Exa search both go through AI Gateway on this binding, billed to the account's AI Gateway credits.
+  "ai": { "binding": "AI" },
+  "vars": { "GATEWAY_ID": "default", "MODEL": "anthropic/claude-haiku-5.5" },
+
+  // One Durable Object (with its own SQLite database) per chat thread.
+  "durable_objects": { "bindings": [{ "name": "THREAD", "class_name": "Thread" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Thread"] }],
+
+  // Per-visitor cap on messages, so one person can't run up the bill.
+  "ratelimits": [{ "name": "LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } }]
+}

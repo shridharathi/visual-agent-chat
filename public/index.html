@@ -634,96 +634,22 @@ in vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);}`;
   }
 
   /* ===== tools =====
-   * Web search and page reading come from the viewer's "Parallel Search" connector (through the mcp capability);
-   * the rest run here in the page. Every tool call becomes a trace line and a shape. */
-  const WEB = "Parallel Search";
+   * The agent loop runs on the server (src/thread.ts). The page only turns each tool call it reports into a trace line and a shape. */
   const clip = (s, n) => (s = String(s ?? "")).length > n ? s.slice(0, n) + "\n…[truncated]" : s;
-  const firstString = v => {
-    if (typeof v === "string") return v;
-    if (Array.isArray(v)) { for (const x of v) { const s = firstString(x); if (s) return s; } }
-    else if (v && typeof v === "object") { for (const k of ["query", "q", "search_queries", "queries", "objective", "url", "urls"]) if (k in v) { const s = firstString(v[k]); if (s) return s; } for (const x of Object.values(v)) { const s = firstString(x); if (s) return s; } }
-    return "";
-  };
   const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return String(u).slice(0, 40); } };
   const short = (s, n = 48) => (s = String(s).trim()).length > n ? s.slice(0, n - 1) + "…" : s;
-
-  // Runs model-written JavaScript in a throwaway worker, so it can't touch this page. 5 s limit.
-  const WORKER_SRC = `onmessage=async e=>{const out=[];const log=(...a)=>out.push(a.map(x=>typeof x==="string"?x:JSON.stringify(x)).join(" "));const console={log,info:log,warn:log,error:log};try{const r=await (new Function("console",'"use strict";return (async()=>{'+e.data+'\\n})()'))(console);postMessage({ok:true,out:out.join("\\n"),result:r===undefined?undefined:JSON.stringify(r)})}catch(err){postMessage({ok:false,out:out.join("\\n"),error:String(err&&err.message||err)})}}`;
-  let workerOk = false;
-  try { const u = URL.createObjectURL(new Blob([WORKER_SRC], { type: "text/javascript" })); new Worker(u).terminate(); workerOk = true; URL.revokeObjectURL(u); } catch {}
-  const runJs = code => new Promise((resolve, reject) => {
-    const u = URL.createObjectURL(new Blob([WORKER_SRC], { type: "text/javascript" })), w = new Worker(u);
-    const done = () => { clearTimeout(t); w.terminate(); URL.revokeObjectURL(u); };
-    const t = setTimeout(() => { done(); reject(new Error("Timed out after 5 seconds")); }, 5000);
-    w.onmessage = e => { done(); const d = e.data; d.ok ? resolve({ output: clip(d.out, 8000), result: clip(d.result, 4000) }) : reject(new Error(d.error + (d.out ? "\nOutput before the error:\n" + clip(d.out, 4000) : ""))); };
-    w.onerror = e => { done(); reject(new Error(e.message || "Worker error")); };
-    w.postMessage(String(code || ""));
-  });
-
-  const LOCAL_TOOLS = [
-    {
-      name: "get_user_context", shape: "clock", step: () => "Checking today's date and where you are",
-      description: "Returns the user's local date, time, time zone and language. Use for anything that depends on today's date, the season, the user's place or currency.",
-      run: () => ({
-        local_time: new Date().toLocaleString(navigator.language || "en-US", { dateStyle: "full", timeStyle: "short" }),
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        language: navigator.language || "en-US",
-      }),
-    },
-    {
-      name: "calculate", shape: "calculator", step: a => "Calculating " + short(a.expression || "", 40),
-      description: "Evaluates one arithmetic expression with + - * / % ^ and parentheses. Use for quick math.",
-      inputSchema: { type: "object", properties: { expression: { type: "string" } }, required: ["expression"] },
-      run: a => {
-        const e = String(a.expression || "").replace(/\^/g, "**");
-        if (!e.trim() || !/^[\d\s+\-*/%.()e]*$/i.test(e)) throw new Error("Only numbers and + - * / % ^ ( ) are allowed");
-        const v = Function('"use strict";return (' + e + ")")();
-        if (typeof v !== "number" || !isFinite(v)) throw new Error("Result is not a finite number");
-        return { result: Math.round(v * 1e10) / 1e10 };
-      },
-    },
-    {
-      name: "run_javascript", shape: "laptop", step: () => "Running code", needs: () => workerOk,
-      description: "Runs JavaScript in an isolated sandbox with no network or DOM and returns console.log output and the returned value. Use for data processing, date math, simulations, unit conversions and anything calculate can't do. The code is the body of an async function: use `return` for the result.",
-      inputSchema: { type: "object", properties: { code: { type: "string", description: "Function body. console.log output is captured." } }, required: ["code"] },
-      run: a => runJs(a.code),
-    },
-  ];
-
-  // Connector tools: the schema comes from the connector itself (describeTool) so Claude sends exactly what it expects.
-  const WEB_TOOLS = {
-    web_search: {
-      shape: "search", step: a => { const s = firstString(a); return s ? `Searching the web for “${short(s)}”` : "Searching the web"; },
-      description: "Searches the web and returns current results with titles, URLs and excerpts. Use for anything recent, factual, about people, products, prices, events or anything you are not sure about.",
-      fallback: { type: "object", properties: { objective: { type: "string", description: "What you are trying to find out" }, search_queries: { type: "array", items: { type: "string" }, description: "1-3 keyword queries" } }, required: ["objective"] },
-    },
-    web_fetch: {
-      shape: "book", step: a => { const s = firstString(a); return s ? `Reading ${hostOf(s)}` : "Reading a page"; },
-      description: "Fetches web pages by URL and returns their text. Use to read a search result in full, or a link the user gave you.",
-      fallback: { type: "object", properties: { urls: { type: "array", items: { type: "string" } }, objective: { type: "string" } }, required: ["urls"] },
-    },
+  const TOOL_UI = {
+    web_search: { shape: "search", step: a => a.query ? `Searching the web for “${short(a.query)}”` : "Searching the web" },
+    web_fetch: { shape: "book", step: a => a.url ? `Reading ${hostOf(a.url)}` : "Reading a page" },
+    calculate: { shape: "calculator", step: a => "Calculating " + short(a.expression || "", 40) },
   };
-  // Keep a connector schema under the 4 KB tool-schema limit by dropping nested descriptions if needed.
-  const fitSchema = s => {
-    if (JSON.stringify(s).length <= 3800) return s;
-    const strip = o => { if (Array.isArray(o)) return o.map(strip); if (o && typeof o === "object") { const r = {}; for (const [k, v] of Object.entries(o)) if (k !== "description" && k !== "examples") r[k] = strip(v); return r; } return o; };
-    const t = strip(s); return JSON.stringify(t).length <= 3800 ? t : null;
-  };
-
-  // One standing instruction turn leads every conversation. The status lines are a progress display, not hidden reasoning.
   const MARK = "FOLLOWUPS:";
-  const RULES = (names, hasWeb) => `You are a helpful assistant in a chat page. Answer the user's latest message, using the earlier messages as context. Requests can be about anything: questions, research, current events, writing, code, math, planning or advice.
 
-The page shows a progress display while you work. As you go, write short status lines saying what you are doing, each on its own line in exactly this form:
-@scene <shape> | <status, under 12 words, specific to this request>
-<shape> is one word from: ${SHAPES.join(", ")}.
-Pick the object the status is about, or the closest visual metaphor: an idea -> bulb, code -> laptop, time or dates -> clock, places -> globe, reading -> book, money -> coin, a hard part -> jigsaw, structure or systems -> cube, people -> person, looking something up -> search, the final pick -> star.
-Write the first status line right away, then 2 to 5 more as you work, including one before each tool call.
-
-Tools available: ${names.join(", ")}.${hasWeb ? " Search the web for anything current, factual or that you are unsure of, rather than relying on memory, and read the most relevant pages when the snippets aren't enough. Cite the pages you used as Markdown links." : " There is no web access in this session, so say so if the answer needs current information."}
-
-When you have what you need, write a line containing only @answer, then the answer in concise Markdown with no preamble; use code blocks for code.
-Final line: ${MARK} <follow-up question 1> | <follow-up question 2>`;
+  /* ===== thread: one per browser tab session, kept so a reload picks the conversation back up ===== */
+  const newId = () => crypto.randomUUID();
+  let threadId = (() => { try { return localStorage.getItem("vac:thread") || newId(); } catch { return newId(); } })();
+  const saveThread = () => { try { localStorage.setItem("vac:thread", threadId); } catch {} };
+  saveThread();
 
   function parseStream(text) {
     const lines = text.split("\n"), thoughts = [], ans = [];
@@ -746,8 +672,7 @@ Final line: ${MARK} <follow-up question 1> | <follow-up question 2>`;
   const form = $("prompt"), input = $("input"), runEl = $("runBody"), statusEl = $("status");
   const SEND = '<path d="M12 19V5M5 12l7-7 7 7"/>';
   const STOP = '<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/>';
-  let busy = false, ctl = null, sample = null, mcp = null, perms = null, toolsOk = false, unavailable = false, current = null, turnEl = null;
-  const history = []; // [{q, a}] — finished exchanges, sent back as hidden context so follow-ups make sense
+  let busy = false, ctl = null, unavailable = false, current = null, turnEl = null;
 
   function sync() {
     const send = $("send");
@@ -849,6 +774,7 @@ Final line: ${MARK} <follow-up question 1> | <follow-up question 2>`;
   const ACTIONS = {
     copy: `<g ${STROKE} stroke-width="1.8"><rect x="9" y="9" width="12" height="12" rx="2.5"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></g>`,
     retry: `<path ${STROKE} stroke-width="1.8" d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/>`,
+    fresh: `<path ${STROKE} stroke-width="1.8" d="M12 5v14M5 12h14"/>`,
     up: `<path ${STROKE} stroke-width="1.8" d="M7 10v12M15 5.88L14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88z"/>`,
     down: `<path ${STROKE} stroke-width="1.8" d="M17 14V2M9 18.12L10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88z"/>`,
   };
@@ -857,6 +783,7 @@ Final line: ${MARK} <follow-up question 1> | <follow-up question 2>`;
     const mk = (key, label, fn) => { const b = h("button", "act", svg(ACTIONS[key], 15)); b.type = "button"; b.setAttribute("aria-label", label); b.title = label; b.onclick = () => fn(b); row.appendChild(b); return b; };
     mk("copy", "Copy", async () => { try { await navigator.clipboard.writeText(bodyText); msg.textContent = "Copied"; } catch { msg.textContent = "Copy isn't available here"; } row.appendChild(msg); setTimeout(() => msg.remove(), 1600); });
     mk("retry", "Retry", () => ask(q));
+    mk("fresh", "New chat", () => { current?.stop(); threadId = newId(); saveThread(); runEl.replaceChildren(); input.value = ""; grow(); sync(); input.focus(); });
     const up = mk("up", "Good response", b => { b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); down.setAttribute("aria-pressed", "false"); });
     const down = mk("down", "Bad response", b => { b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); up.setAttribute("aria-pressed", "false"); });
     turnEl.appendChild(row);
@@ -872,49 +799,6 @@ Final line: ${MARK} <follow-up question 1> | <follow-up question 2>`;
     }
   }
   const note = msg => { const p = h("p", "note"); p.textContent = msg; turnEl.appendChild(p); };
-
-  /* ===== web search setup (Parallel Search connector) ===== */
-  // web: "off" (no mcp / connector not added), "unknown" (declared, not yet allowed), "ready", "denied"
-  let web = "off", webSchemas = null;
-  const webHint = msg => { statusEl.textContent = msg; statusEl.hidden = !msg; };
-  async function loadWebSchemas() {
-    const out = {};
-    for (const name of Object.keys(WEB_TOOLS)) {
-      try { const d = await mcp.describeTool(WEB, name); out[name] = fitSchema(d.inputSchema) || WEB_TOOLS[name].fallback; }
-      catch (e) { if (e?.code === "bad_request") out[name] = WEB_TOOLS[name].fallback; else throw e; }
-    }
-    return out;
-  }
-  // Called on submit (a user gesture), so the one-time connector consent can be asked here.
-  async function ensureWeb() {
-    if (web === "off" || web === "denied") return null;
-    if (webSchemas) return webSchemas;
-    try { webSchemas = await loadWebSchemas(); }
-    catch (e) {
-      if (e?.code === "not_in_manifest" && perms) {
-        const st = await perms.request(["mcp:" + WEB]).catch(() => null);
-        const s = st && (st["mcp:" + WEB] ?? st);
-        if (s === "denied") { web = "denied"; webHint("Web search is off for this page. Turn on Parallel Search in the page's permissions to use it."); return null; }
-        try { webSchemas = await loadWebSchemas(); } catch { webSchemas = { web_search: WEB_TOOLS.web_search.fallback, web_fetch: WEB_TOOLS.web_fetch.fallback }; }
-      } else if (e?.code === "server_not_connected") { web = "off"; webHint("Web search is off. Connect Parallel Search in claude.ai Settings → Connectors to turn it on."); return null; }
-      else if (e?.code === "needs_reauth") { webHint("Reconnect Parallel Search in claude.ai Settings → Connectors to use web search."); return null; }
-      else webSchemas = { web_search: WEB_TOOLS.web_search.fallback, web_fetch: WEB_TOOLS.web_fetch.fallback }; // the first call will ask
-    }
-    if (webSchemas) { web = "ready"; webHint(""); }
-    return webSchemas;
-  }
-  const webPayload = res => {
-    const p = res?.payload ?? res?.content?.map(c => c.text || "").join("\n");
-    return clip(typeof p === "string" ? p : JSON.stringify(p), 14000);
-  };
-  const webErr = e => ({
-    server_not_connected: "Web search isn't connected for this user.",
-    needs_reauth: "The web search connector needs to be reconnected.",
-    not_in_manifest: "Web search isn't allowed for this page.",
-    approval_required: "The user didn't approve web search.",
-    blocked_by_policy: "Web search is blocked by the user's organization.",
-    server_unavailable: "Web search is temporarily unavailable.",
-  })[e?.code] || (e?.message ? "Web tool failed: " + clip(e.message, 300) : "Web tool failed.");
 
   /* ===== one exchange ===== */
   async function go(q) {
@@ -942,7 +826,7 @@ Final line: ${MARK} <follow-up question 1> | <follow-up question 2>`;
 
     const finish = () => {
       const { body, fu } = parseStream(full);
-      if (body) { finishUI(q, body, fu); history.push({ q, a: body }); }
+      if (body) finishUI(q, body, fu);
       busy = false; ctl = null; sync();
     };
     // Tuck the visual and trace away so the streamed answer takes the stage.
@@ -970,53 +854,51 @@ Final line: ${MARK} <follow-up question 1> | <follow-up question 2>`;
     };
 
     ctl = new AbortController();
-    const signal = ctl.signal;
-    const traced = (shape, label, fn) => async (args, cx) => { think.step(label(args || {})); showSoon(shape); return fn(args || {}, cx); };
-    let tools;
-    if (toolsOk) {
-      tools = LOCAL_TOOLS.filter(d => !d.needs || d.needs()).map(d => ({
-        name: d.name, description: d.description, ...(d.inputSchema ? { inputSchema: d.inputSchema } : {}),
-        execute: traced(d.shape, d.step, a => d.run(a)),
-      }));
-      const ws = await ensureWeb();
-      if (signal.aborted) { current.stop(); think.settle(); mindEl.hidden = true; mind.live(false); busy = false; ctl = null; sync(); note("Stopped."); return; }
-      if (ws) for (const [name, def] of Object.entries(WEB_TOOLS)) tools.push({
-        name, description: def.description, inputSchema: ws[name],
-        execute: traced(def.shape, def.step, async (a, cx) => {
-          try { return webPayload(await mcp.callTool(WEB, name, a, { signal: cx?.signal })); }
-          catch (e) { throw new Error(webErr(e)); }
-        }),
-      });
-    }
-
-    // Conversation: standing rules, the last few exchanges, then this message.
-    const turns = [{ role: "user", content: RULES(tools ? tools.map(t => t.name) : [], !!tools?.some(t => t.name === "web_search")) }];
-    for (const x of history.slice(-6)) turns.push({ role: "user", content: x.q }, { role: "assistant", content: clip(x.a, 6000) });
-    turns.push({ role: "user", content: q });
-
-    try {
-      const res = await sample(turns, { model: "claude-sonnet-5-5", effort: "low", cache: false, signal, tools, onText: ({ text }) => onText(text) });
-      onText(res.text);
-      ended = true; startAnswer(); stream?.end();
-      if (res.truncated) note("The answer was cut short. Ask for less at a time.");
-    } catch (e) {
-      if (e.text && e.code !== "refused") { onText(e.text); ended = true; startAnswer(); stream?.end(); }
+    const fail = code => {
+      if (full && code !== "cancelled") { ended = true; startAnswer(); stream?.end(); }
       else { current.stop(); think.settle(); mindEl.hidden = true; mind.live(false); busy = false; ctl = null; sync(); }
-      note(e.code === "cancelled" ? "Stopped." : copyFor(e.code));
-      if (["not_granted", "sampling_disabled", "not_declared", "capability_disabled", "capability_removed"].includes(e.code)) setUnavailable(copyFor(e.code));
+      note(code === "cancelled" ? "Stopped." : copyFor(code));
+    };
+    try {
+      const res = await fetch(`/api/chat?thread=${threadId}`, {
+        method: "POST", signal: ctl.signal, headers: { "content-type": "application/json" },
+        body: JSON.stringify({ q, ctx: {
+          time: new Date().toLocaleString(navigator.language || "en-US", { dateStyle: "full", timeStyle: "short" }),
+          tz: Intl.DateTimeFormat().resolvedOptions().timeZone, lang: navigator.language || "en-US",
+        } }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); return fail(e.error || "failed"); }
+      // NDJSON events: text deltas, tool calls (each becomes a trace line and a shape), then done or error.
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buf = "", text = "", done = false;
+      while (true) {
+        const { value, done: eof } = await reader.read();
+        if (eof) break;
+        buf += value;
+        let nl;
+        while ((nl = buf.indexOf("\n")) !== -1) {
+          const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+          if (!line.trim()) continue;
+          const e = JSON.parse(line);
+          if (e.t === "text") { text += e.d; onText(text); }
+          else if (e.t === "tool") { const ui = TOOL_UI[e.name]; if (ui) { think.step(ui.step(e.input || {})); showSoon(ui.shape); } }
+          else if (e.t === "done") { done = true; ended = true; startAnswer(); stream?.end(); if (e.truncated) note("The answer was cut short. Ask for less at a time."); }
+          else if (e.t === "error") return fail(e.code);
+        }
+      }
+      if (!done) fail("failed");
+    } catch (e) {
+      fail(e?.name === "AbortError" ? "cancelled" : "failed");
     }
   }
 
   function copyFor(code) {
     return ({
-      not_granted: "Claude access wasn't allowed for this page. Reload and choose Allow.",
-      sampling_disabled: "Claude isn't available on this account.",
-      rate_limited: "You've hit a usage limit. Wait a moment, then try again.",
-      session_expired: "Your session expired. Sign in again, then retry.",
-      refused: "Claude declined that one. Try rephrasing.",
-      empty_completion: "No answer came back. Try a simpler question.",
-      prompt_too_large: "This chat got too long. Start a new chat.",
-    })[code] || "Something went wrong reaching Claude. Send again to retry.";
+      rate_limited: "You're sending messages quickly. Wait a moment, then try again.",
+      busy: "This chat is still answering in another tab.",
+      bad_message: "That message is too long. Try a shorter one.",
+      no_credits: "The app is out of AI credits right now.",
+    })[code] || "Something went wrong reaching the agent. Send again to retry.";
   }
   function setUnavailable(msg) { unavailable = true; statusEl.textContent = msg; statusEl.hidden = false; sync(); }
 
@@ -1043,18 +925,13 @@ Final line: ${MARK} <follow-up question 1> | <follow-up question 2>`;
   /* ===== boot ===== */
   sync(); input.focus();
   (async () => {
-    const use = n => window.claude ? window.claude.use(n).catch(() => null) : Promise.resolve(null);
-    [sample, mcp, perms] = await Promise.all([use("sample"), use("mcp"), use("permissions")]);
-    if (!sample) { setUnavailable("Open this page in Claude to run the agent."); return; }
-    const lim = await sample.limits().catch(() => null);
-    toolsOk = !!lim?.tools;
-    if (!toolsOk || !mcp) { if (toolsOk) webHint("Web search needs the Claude app's connector access, which isn't available in this view."); return; }
-    // Listing never asks the viewer: it only tells us whether the connector exists for them.
-    const list = await mcp.listTools(WEB).catch(() => null);
-    const srv = list?.servers?.find(x => x.server === WEB);
-    if (!srv) webHint("Web search is off. Connect Parallel Search in claude.ai Settings → Connectors to turn it on.");
-    else if (srv.authStatus === "needs_reauth") webHint("Reconnect Parallel Search in claude.ai Settings → Connectors to use web search.");
-    else web = "unknown";
+    const r = await fetch(`/api/thread?thread=${threadId}`).catch(() => null);
+    const last = r?.ok ? (await r.json()).exchanges?.at(-1) : null;
+    if (!last || busy) return;
+    turnEl = h("div", "turn"); runEl.replaceChildren(turnEl);
+    const p = h("p", "note"); p.textContent = last.q; turnEl.appendChild(p);
+    const a = h("div", "answer", md(last.a)); turnEl.appendChild(a);
+    finishUI(last.q, last.a, []);
   })();
 })();
 </script>
